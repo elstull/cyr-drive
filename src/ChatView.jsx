@@ -1,6 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CHAT VIEW — Dashboard-style layout for conversations and history
@@ -12,7 +10,7 @@ import remarkGfm from 'remark-gfm';
 //
 // ═══════════════════════════════════════════════════════════════════════════
 
-const DIM = '#8899aa';
+const DIM = '#556677';
 const BLUE = '#4a90d9';
 const GREEN = '#4ade80';
 
@@ -24,18 +22,7 @@ export default function ChatView({ currentUser, users, supabase }) {
   const [view, setView] = useState('chat'); // 'chat' or 'history'
   const [activityLog, setActivityLog] = useState([]);
   const [logLoading, setLogLoading] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState(null);
   const endRef = useRef(null);
-
-  const handleCopy = async (text, idx) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedIndex(idx);
-      setTimeout(() => setCopiedIndex(null), 1500);
-    } catch (e) {
-      console.error('Copy failed:', e);
-    }
-  };
 
   const userName = users?.[currentUser]?.name?.split(' ')[0] || 'there';
 
@@ -66,42 +53,22 @@ export default function ChatView({ currentUser, users, supabase }) {
     return Math.floor(mins / 1440) + 'd ago';
   };
 
-  const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+  const sendMessage = () => {
+    if (!input.trim()) return;
     const msg = input.trim();
     setInput('');
-    const time = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const userMsg = { role: 'user', content: msg, time: time() };
-    // Build history from current messages + the new user message — must
-    // happen BEFORE we append the empty pending placeholder.
-    const history = [...messages, userMsg].slice(-12).map(m => ({ role: m.role, content: m.content }));
-    // Post the user message and a pending assistant bubble in one update so
-    // the user sees their message AND the thinking indicator immediately.
-    setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', pending: true, time: time() }]);
+    setMessages(prev => [...prev, { role: 'user', content: msg, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
     setLoading(true);
-    setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-    try {
-      const { data, error } = await supabase.functions.invoke('chat-query', {
-        body: { message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser },
-      });
-      if (error) throw error;
-      const reply = data?.reply || 'I had trouble connecting. Please try again.';
-      setMessages(prev => prev.map((m, i) =>
-        i === prev.length - 1 && m.pending
-          ? { role: 'assistant', content: reply, time: time() }
-          : m
-      ));
-    } catch (err) {
-      console.error('Chat error:', err);
-      setMessages(prev => prev.map((m, i) =>
-        i === prev.length - 1 && m.pending
-          ? { role: 'assistant', content: 'I had trouble reaching the server. Check your connection and try again.', time: time() }
-          : m
-      ));
-    } finally {
+    // Placeholder — will wire to Claude API
+    setTimeout(() => {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'I understand your question. Full AI integration is coming soon. I will be able to answer questions about your shipments, invoices, inventory, and business operations in any language.',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]);
       setLoading(false);
       setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    }
+    }, 800);
   };
 
   return (
@@ -142,7 +109,7 @@ export default function ChatView({ currentUser, users, supabase }) {
         <>
           {/* Messages */}
           <div style={{
-            background: '#111827', border: '1px solid #3a4a5e', borderRadius: 12,
+            background: '#111827', border: '1px solid #1e293b', borderRadius: 12,
             padding: '12px', minHeight: 300, maxHeight: 'calc(100vh - 340px)',
             overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8,
             marginBottom: 12,
@@ -161,53 +128,26 @@ export default function ChatView({ currentUser, users, supabase }) {
                 <div style={{
                   maxWidth: '85%', padding: '10px 14px', borderRadius: 14,
                   background: m.role === 'user' ? BLUE + '22' : '#0a0e17',
-                  border: '1px solid ' + (m.role === 'user' ? BLUE + '88' : '#3a4a5e'),
+                  border: '1px solid ' + (m.role === 'user' ? BLUE + '44' : '#1e293b'),
                   color: '#e2e8f0', fontSize: 13, lineHeight: 1.6,
                 }}>
-                  {m.role === 'assistant' ? (
-                    m.pending ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: BLUE, fontSize: 12 }}>
-                        <span style={{ animation: 'pulse 1s infinite' }}>{'\u25CF'}</span> Thinking...
-                      </div>
-                    ) : (
-                      <div className="chat-md">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                      </div>
-                    )
-                  ) : (
-                    <div>{m.content}</div>
-                  )}
-                  {!m.pending && (
-                    <div style={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      gap: 8, marginTop: 6,
-                    }}>
-                      <span style={{ fontSize: 9, color: DIM }}>{m.time}</span>
-                      {m.role === 'assistant' && (
-                        <button
-                          onClick={() => handleCopy(m.content, i)}
-                          style={{
-                            background: 'transparent', border: 'none', cursor: 'pointer',
-                            color: copiedIndex === i ? GREEN : DIM, fontSize: 10,
-                            padding: '2px 6px', borderRadius: 4, fontFamily: 'inherit',
-                            WebkitTapHighlightColor: 'transparent',
-                          }}
-                        >
-                          {copiedIndex === i ? '\u2713 Copied!' : '\uD83D\uDCCB Copy'}
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  {m.content}
                 </div>
+                <span style={{ fontSize: 9, color: DIM, marginTop: 2, padding: '0 6px' }}>{m.time}</span>
               </div>
             ))}
+            {loading && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: BLUE, fontSize: 12, padding: '4px 8px' }}>
+                <span style={{ animation: 'pulse 1s infinite' }}>{'\u25CF'}</span> Thinking...
+              </div>
+            )}
             <div ref={endRef} />
           </div>
 
           {/* Input */}
           <div style={{
             display: 'flex', gap: 8, alignItems: 'center',
-            background: '#111827', border: '1px solid #3a4a5e', borderRadius: 12,
+            background: '#111827', border: '1px solid #1e293b', borderRadius: 12,
             padding: '10px 14px',
           }}>
             <input
@@ -286,25 +226,7 @@ export default function ChatView({ currentUser, users, supabase }) {
         </>
       )}
 
-      <style>{`
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
-        .chat-md p { margin: 0 0 8px 0; }
-        .chat-md p:last-child { margin-bottom: 0; }
-        .chat-md h1 { font-size: 16px; font-weight: 700; margin: 8px 0 6px; color: #fff; }
-        .chat-md h2 { font-size: 14px; font-weight: 700; margin: 8px 0 6px; color: #fff; }
-        .chat-md h3 { font-size: 13px; font-weight: 700; margin: 6px 0 4px; color: #fff; }
-        .chat-md strong { color: #fff; font-weight: 700; }
-        .chat-md ul, .chat-md ol { margin: 4px 0 8px 0; padding-left: 20px; }
-        .chat-md li { margin: 2px 0; }
-        .chat-md code { background: #1e293b; color: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace; }
-        .chat-md pre { background: #050810; border: 1px solid #2a3a4e; border-radius: 6px; padding: 10px; overflow-x: auto; margin: 6px 0; }
-        .chat-md pre code { background: transparent; padding: 0; font-size: 11px; color: #e2e8f0; }
-        .chat-md table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 12px; }
-        .chat-md th, .chat-md td { border: 1px solid #3a4a5e; padding: 6px 10px; text-align: left; }
-        .chat-md th { background: #1a2332; font-weight: 700; color: #fff; }
-        .chat-md a { color: #4a90d9; text-decoration: underline; }
-        .chat-md blockquote { border-left: 3px solid #4a90d9; padding-left: 10px; margin: 6px 0; color: #c8d4e0; }
-      `}</style>
+      <style>{`@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
     </div>
   );
 }
