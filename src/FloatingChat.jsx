@@ -8,12 +8,12 @@ import { useState, useEffect, useRef } from 'react';
 // Context-aware: knows which screen you're on.
 // Wired to Supabase Edge Function for real AI responses.
 //
-// Version: 2.1.0 — 2026-04-11
+// Version: 2.1.1 — 2026-04-12
 // ═══════════════════════════════════════════════════════════════════════════
 
 const DIM = '#556677';
-const APP_VERSION = '2.1.0';
-const BUILD_DATE = '2026-04-11';
+const APP_VERSION = '2.1.1';
+const BUILD_DATE = '2026-04-12';
 
 export default function FloatingChat({ supabase, currentUser, users, activeView }) {
   const [open, setOpen] = useState(false);
@@ -35,9 +35,6 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
   const resetPos = () => { setPos({ x: -1, y: -1 }); setSize({ w: 0, h: 320 }); };
 
   const userName = users?.[currentUser]?.name?.split(' ')[0] || 'there';
-
-  // Hide FloatingChat when user is on the Chat tab — ChatView handles it there
-  if (activeView === 'workspace') return null;
 
   // Load activity log
   useEffect(() => {
@@ -142,6 +139,10 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
+
+  // ── Hide on Chat tab — ChatView handles chat there ──
+  // IMPORTANT: this check MUST come AFTER all hooks (React rules of hooks)
+  if (activeView === 'workspace') return null;
 
   // ── Floating button — small, semi-transparent until hover ──
   if (!open) {
