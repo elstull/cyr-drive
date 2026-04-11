@@ -1,15 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FLOATING CHAT — available on every screen
+// FLOATING CHAT — available on every screen (except Chat tab)
 //
 // Draggable, resizable, dockable.
 // Toggle between live chat and activity history.
 // Context-aware: knows which screen you're on.
+// Wired to Supabase Edge Function for real AI responses.
 //
+// Version: 2.1.0 — 2026-04-11
 // ═══════════════════════════════════════════════════════════════════════════
 
 const DIM = '#556677';
+const APP_VERSION = '2.1.0';
+const BUILD_DATE = '2026-04-11';
 
 export default function FloatingChat({ supabase, currentUser, users, activeView }) {
   const [open, setOpen] = useState(false);
@@ -31,6 +35,9 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
   const resetPos = () => { setPos({ x: -1, y: -1 }); setSize({ w: 0, h: 320 }); };
 
   const userName = users?.[currentUser]?.name?.split(' ')[0] || 'there';
+
+  // Hide FloatingChat when user is on the Chat tab — ChatView handles it there
+  if (activeView === 'workspace') return null;
 
   // Load activity log
   useEffect(() => {
@@ -56,22 +63,39 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
     return Math.floor(mins / 1440) + 'd ago';
   };
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
     const msg = input.trim();
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: msg }]);
-    setLoading(true);
     setShowHistory(false);
-    // Placeholder response — will wire to Claude API
-    setTimeout(() => {
+
+    const userMsg = { role: 'user', content: msg };
+    setMessages(prev => [...prev, userMsg]);
+    setLoading(true);
+
+    try {
+      const history = messages.slice(-12).map(m => ({ role: m.role, content: m.content }));
+      const { data, error } = await supabase.functions.invoke('chat-query', {
+        body: {
+          message: msg,
+          history,
+          userId: currentUser,
+          userName: users?.[currentUser]?.name || currentUser,
+        },
+      });
+      if (error) throw error;
+      const reply = data?.reply || 'I had trouble connecting. Please try again.';
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (err) {
+      console.error('FloatingChat error:', err);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'I can see you are on the ' + (activeView || 'home') + ' screen. Full AI integration coming soon. For detailed conversations, use the Chat tab.'
+        content: 'I had trouble reaching the server. Check your connection and try again.',
       }]);
+    } finally {
       setLoading(false);
       setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    }, 800);
+    }
   };
 
   // Drag handlers
@@ -119,111 +143,113 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
     window.addEventListener('mouseup', onUp);
   };
 
-  // ── Floating button ──
+  // ── Floating button — small, semi-transparent until hover ──
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} style={{
-        position: 'fixed', bottom: 88, right: 16, zIndex: 9998,
-        width: 52, height: 52, borderRadius: '50%',
-        background: '#4a90d9', border: 'none', boxShadow: '0 4px 16px rgba(74,144,217,0.4)',
-        color: '#fff', fontSize: 22, cursor: 'pointer',
+        position: 'fixed', bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))', right: 12, zIndex: 9998,
+        width: 38, height: 38, borderRadius: '50%',
+        background: '#4a90d988', border: '1px solid #4a90d944',
+        color: '#fff', fontSize: 16, cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         WebkitTapHighlightColor: 'transparent',
-      }}>{'\uD83D\uDCAC'}</button>
+        transition: 'background 0.2s, transform 0.2s',
+      }}
+      onMouseEnter={e => { e.currentTarget.style.background = '#4a90d9'; e.currentTarget.style.transform = 'scale(1.1)'; }}
+      onMouseLeave={e => { e.currentTarget.style.background = '#4a90d988'; e.currentTarget.style.transform = 'scale(1)'; }}
+      >{'\uD83D\uDCAC'}</button>
     );
   }
 
-  // ── Chat panel ──
+  // ── Chat panel — constrained width, matches app patterns ──
   return (
     <div ref={panelRef} style={{
       position: 'fixed', zIndex: 9998,
       ...(pos.x === -1
-        ? { bottom: 80, left: 8, right: 8, maxWidth: 520, margin: '0 auto' }
-        : { left: pos.x, top: pos.y, width: size.w || 400 }),
+        ? { bottom: 'calc(80px + env(safe-area-inset-bottom, 0px))', right: 12, width: 340 }
+        : { left: pos.x, top: pos.y, width: size.w || 340 }),
       height: size.h,
-      background: '#0d1220', border: '1px solid #2a3a4e', borderRadius: 16,
-      boxShadow: '0 8px 32px rgba(0,0,0,0.5)', overflow: 'hidden',
+      background: '#0d1220', border: '1px solid #2a3a4e', borderRadius: 12,
+      boxShadow: '0 4px 20px rgba(0,0,0,0.4)', overflow: 'hidden',
       display: 'flex', flexDirection: 'column',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
       cursor: dragging ? 'grabbing' : 'default',
     }}>
       {/* Header — drag handle */}
       <div onMouseDown={onDragStart} style={{
-        padding: '10px 14px', borderBottom: '1px solid #1e293b',
+        padding: '8px 12px', borderBottom: '1px solid #1e293b',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         cursor: 'grab', userSelect: 'none', flexShrink: 0,
+        background: '#111827',
       }}>
-        <div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#4a90d9' }}>
-            {showHistory ? 'Activity History' : 'Ask FSM Drive'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#4a90d9' }}>
+            {showHistory ? '\uD83D\uDCCB History' : '\uD83D\uDCAC Chat'}
           </span>
-          <span style={{ fontSize: 10, color: DIM, marginLeft: 8 }}>
+          <span style={{ fontSize: 10, color: DIM }}>
             {activeView || 'home'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          <span style={{ fontSize: 8, color: DIM }} title={`v${APP_VERSION} (${BUILD_DATE})`}>v{APP_VERSION}</span>
           {pos.x !== -1 && (
             <button onClick={resetPos} title="Dock" style={{
               background: '#4a90d922', border: '1px solid #4a90d944', borderRadius: 4,
-              padding: '2px 8px', color: '#4a90d9', fontSize: 11, cursor: 'pointer',
+              padding: '2px 6px', color: '#4a90d9', fontSize: 10, cursor: 'pointer',
               fontFamily: 'inherit', fontWeight: 600,
             }}>{'\u21E9'}</button>
           )}
           <button onClick={() => setOpen(false)} style={{
-            background: 'none', border: 'none', color: '#8899aa', fontSize: 16,
-            cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px',
+            background: 'none', border: 'none', color: '#8899aa', fontSize: 14,
+            cursor: 'pointer', fontFamily: 'inherit', padding: '2px 4px',
           }}>{'\u2715'}</button>
         </div>
       </div>
 
       {/* Content — chat or history */}
       <div style={{
-        flex: 1, overflowY: 'auto', padding: '10px 14px',
-        display: 'flex', flexDirection: 'column', gap: 8,
+        flex: 1, overflowY: 'auto', padding: '8px 10px',
+        display: 'flex', flexDirection: 'column', gap: 6,
+        scrollbarWidth: 'thin',
       }}>
         {showHistory ? (
           <>
             {activityLog.length === 0 && (
-              <div style={{ color: DIM, fontSize: 12, textAlign: 'center', padding: '20px 0' }}>No activity yet</div>
+              <div style={{ color: DIM, fontSize: 11, textAlign: 'center', padding: '16px 0' }}>No activity yet</div>
             )}
             {activityLog.map((a, i) => (
               <div key={i} style={{
-                padding: '8px 12px', borderRadius: 8,
-                background: '#111827', border: '1px solid #1e293b', fontSize: 12, lineHeight: 1.5,
+                padding: '6px 10px', borderRadius: 8,
+                background: '#111827', border: '1px solid #1e293b', fontSize: 11, lineHeight: 1.5,
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                   <span style={{ color: '#4a90d9', fontWeight: 600 }}>{a.user_name || a.user_id}</span>
-                  <span style={{ color: DIM, fontSize: 10 }}>{timeAgo(a.occurred_at)}</span>
+                  <span style={{ color: DIM, fontSize: 9 }}>{timeAgo(a.occurred_at)}</span>
                 </div>
-                <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 2 }}>{a.title}</div>
-                {a.detail && <div style={{ color: '#8899aa', fontSize: 11 }}>{a.detail}</div>}
-                <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
-                  {a.action_type && <span style={{ fontSize: 9, color: DIM, background: '#1e293b', padding: '1px 6px', borderRadius: 3 }}>{a.action_type}</span>}
-                  {a.entity_id && <span style={{ fontSize: 9, color: DIM, background: '#1e293b', padding: '1px 6px', borderRadius: 3 }}>{a.entity_id}</span>}
-                </div>
+                <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 1 }}>{a.title}</div>
+                {a.detail && <div style={{ color: '#8899aa', fontSize: 10 }}>{a.detail}</div>}
               </div>
             ))}
           </>
         ) : (
           <>
             {messages.length === 0 && (
-              <div style={{ color: DIM, fontSize: 12, textAlign: 'center', padding: '20px 0', lineHeight: 1.6 }}>
-                Hi {userName}, ask me anything about what you see.
-                <br />Try: "What needs my attention?" or "Show me recent activity"
+              <div style={{ color: DIM, fontSize: 11, textAlign: 'center', padding: '16px 0', lineHeight: 1.6 }}>
+                Ask me anything about what you see.
               </div>
             )}
             {messages.map((m, i) => (
               <div key={i} style={{
                 alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '85%', padding: '8px 12px', borderRadius: 12,
+                maxWidth: '85%', padding: '6px 10px', borderRadius: 10,
                 background: m.role === 'user' ? '#4a90d922' : '#111827',
                 border: '1px solid ' + (m.role === 'user' ? '#4a90d944' : '#1e293b'),
-                color: '#e2e8f0', fontSize: 13, lineHeight: 1.5,
+                color: '#e2e8f0', fontSize: 12, lineHeight: 1.5,
               }}>
                 {m.content}
               </div>
             ))}
-            {loading && <div style={{ color: '#4a90d9', fontSize: 12 }}>Thinking...</div>}
+            {loading && <div style={{ color: '#4a90d9', fontSize: 11 }}>Thinking...</div>}
           </>
         )}
         <div ref={endRef} />
@@ -231,26 +257,27 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
 
       {/* Input bar with history toggle */}
       <div style={{
-        padding: '8px 12px', borderTop: '1px solid #1e293b',
-        display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0,
+        padding: '6px 10px', borderTop: '1px solid #1e293b',
+        display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0,
+        background: '#111827',
       }}>
-        <button onClick={() => setShowHistory(h => !h)} title={showHistory ? 'Switch to chat' : 'View activity history'}
+        <button onClick={() => setShowHistory(h => !h)} title={showHistory ? 'Chat' : 'History'}
           style={{
             background: showHistory ? '#4a90d922' : 'transparent',
             border: '1px solid ' + (showHistory ? '#4a90d944' : '#2a3a4e'),
-            borderRadius: 6, padding: '6px 8px', cursor: 'pointer',
-            color: showHistory ? '#4a90d9' : DIM, fontSize: 12,
+            borderRadius: 6, padding: '5px 7px', cursor: 'pointer',
+            color: showHistory ? '#4a90d9' : DIM, fontSize: 11,
             fontFamily: 'inherit', flexShrink: 0,
           }}>{showHistory ? '\uD83D\uDCAC' : '\uD83D\uDCCB'}</button>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
-          placeholder={showHistory ? 'Switch to chat to ask...' : 'Ask about what you see...'}
+          placeholder={showHistory ? 'Switch to chat...' : 'Ask...'}
           disabled={showHistory}
           style={{
             flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
-            fontSize: 14, fontFamily: 'inherit', outline: 'none',
+            fontSize: 13, fontFamily: 'inherit', outline: 'none',
             opacity: showHistory ? 0.4 : 1,
           }}
         />
