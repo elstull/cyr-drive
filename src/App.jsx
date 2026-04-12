@@ -14,6 +14,7 @@ import FinancialView from './FinancialView.jsx';
 import HelpView from './HelpView.jsx';
 import FloatingChat from './FloatingChat.jsx';
 import ScanDocument from './ScanDocument.jsx';
+import DocumentManager from './DocumentManager.jsx';
 import AuthScreen, { signOut } from './AuthScreen.jsx';
 
 
@@ -94,6 +95,7 @@ export default function App() {
   const [registryLoading, setRegistryLoading] = useState(false);
   const [showDemo, setShowDemo] = useState(false);
   const [showScan, setShowScan] = useState(false);
+  const [showDocs, setShowDocs] = useState(false);
   const channelRefs = useRef([]);
 
   // Derived users object — replaces the old static USERS dict for child
@@ -257,7 +259,7 @@ export default function App() {
   const renderView = () => {
     switch (appView) {
       case 'action':
-        return <ActionView currentUser={currentUser} users={users} supabase={supabase} onScan={() => setShowScan(true)} />;
+        return <ActionView currentUser={currentUser} users={users} supabase={supabase} onScan={() => setShowScan(true)} onDocs={() => setShowDocs(true)} />;
       case 'workspace':
         return <ChatView currentUser={currentUser} users={users} supabase={supabase} />;
       case 'editor':
@@ -298,6 +300,15 @@ case 'help':
       overflow: isEditor ? 'hidden' : undefined,
       paddingBottom: isEditor ? 0 : 80,
     }}>
+      {showDocs && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: '#0a0e17', zIndex: 10000, overflowY: 'auto', paddingBottom: 80,
+        }}>
+          <DocumentManager supabase={supabase} currentUser={currentUser} users={users}
+            onClose={() => setShowDocs(false)} />
+        </div>
+      )}
       {showScan && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,

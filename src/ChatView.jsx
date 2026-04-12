@@ -134,10 +134,12 @@ export default function ChatView({ currentUser, users, supabase }) {
     setLoading(true);
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     try {
-      const { data, error } = await supabase.functions.invoke('chat-query', {
-        body: { message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser },
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
       });
-      if (error) throw error;
+      const data = await response.json();
       const reply = data?.reply || 'I had trouble connecting. Please try again.';
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 && m.pending

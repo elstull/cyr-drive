@@ -72,15 +72,17 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
 
     try {
       const history = messages.slice(-12).map(m => ({ role: m.role, content: m.content }));
-      const { data, error } = await supabase.functions.invoke('chat-query', {
-        body: {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           message: msg,
           history,
           userId: currentUser,
           userName: users?.[currentUser]?.name || currentUser,
-        },
+        }),
       });
-      if (error) throw error;
+      const data = await response.json();
       const reply = data?.reply || 'I had trouble connecting. Please try again.';
       setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (err) {
