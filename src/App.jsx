@@ -1,3 +1,4 @@
+// FSM Drive Platform v3.0.0 — Golden Repo
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   loadRegistry, saveElement, logEvent,
