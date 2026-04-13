@@ -284,7 +284,8 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
             flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
             fontSize: 13, fontFamily: 'inherit', outline: 'none',
             opacity: showHistory ? 0.4 : 1,
-            resize: 'none', overflowY: 'auto', maxHeight: '120px', minHeight: '40px',
+            resize: 'none', overflowY: 'auto', overflowX: 'hidden', maxHeight: '120px', minHeight: '40px',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           }}
         />
         <button onClick={sendMessage} disabled={!input.trim() || showHistory} style={{

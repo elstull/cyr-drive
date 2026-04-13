@@ -275,7 +275,8 @@ export default function ChatView({ currentUser, users, supabase }) {
               style={{
                 flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
                 fontSize: 14, fontFamily: 'inherit', outline: 'none',
-                resize: 'none', overflowY: 'auto', maxHeight: '120px', minHeight: '40px',
+                resize: 'none', overflowY: 'auto', overflowX: 'hidden', maxHeight: '120px', minHeight: '40px',
+                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               }}
             />
             {hasVoice && (
