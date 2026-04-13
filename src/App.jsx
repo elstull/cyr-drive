@@ -96,6 +96,7 @@ export default function App() {
   const [showDemo, setShowDemo] = useState(false);
   const [showScan, setShowScan] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
+  const [instanceName, setInstanceName] = useState('FSM Drive');
   const channelRefs = useRef([]);
 
   // Derived users object — replaces the old static USERS dict for child
@@ -103,6 +104,11 @@ export default function App() {
   const users = currentUser
     ? { [currentUser]: { name: userName || currentUser, email: '' } }
     : {};
+
+  useEffect(() => {
+    supabase.from('instance_config').select('value').eq('key', 'instance_name').single()
+      .then(({ data }) => { if (data?.value) setInstanceName(data.value); });
+  }, []);
 
   // Mark connected once AuthScreen resolves a user
   useEffect(() => {
@@ -246,7 +252,7 @@ export default function App() {
     return (
       <AuthScreen
         onLogin={(user) => { setCurrentUser(user.userId); setUserName(user.userName); }}
-        instanceName="CyRisk"
+        instanceName={instanceName}
       />
     );
   }
