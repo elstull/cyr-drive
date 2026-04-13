@@ -261,7 +261,7 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
       {/* Input bar with history toggle */}
       <div style={{
         padding: '6px 10px', borderTop: '1px solid #1e293b',
-        display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0,
+        display: 'flex', gap: 6, alignItems: 'flex-end', flexShrink: 0,
         background: '#111827',
       }}>
         <button onClick={() => setShowHistory(h => !h)} title={showHistory ? 'Chat' : 'History'}
@@ -282,10 +282,12 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
           disabled={showHistory}
           style={{
             flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
-            fontSize: 13, fontFamily: 'inherit', outline: 'none',
+            fontSize: 16, fontFamily: 'inherit', outline: 'none',
             opacity: showHistory ? 0.4 : 1,
-            resize: 'none', overflowY: 'auto', overflowX: 'hidden', maxHeight: '120px', minHeight: '40px',
+            resize: 'none', overflowY: 'auto', overflowX: 'hidden', maxHeight: 120, minHeight: 40,
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            lineHeight: '1.4', padding: 0,
+            WebkitAppearance: 'none',
           }}
         />
         <button onClick={sendMessage} disabled={!input.trim() || showHistory} style={{

@@ -261,7 +261,7 @@ export default function ChatView({ currentUser, users, supabase }) {
 
           {/* Input with voice button */}
           <div style={{
-            display: 'flex', gap: 8, alignItems: 'center',
+            display: 'flex', gap: 8, alignItems: 'flex-end',
             background: '#111827', border: '1px solid #3a4a5e', borderRadius: 12,
             padding: '10px 14px',
           }}>
@@ -274,9 +274,11 @@ export default function ChatView({ currentUser, users, supabase }) {
               placeholder={isListening ? 'Listening...' : 'Type your message...'}
               style={{
                 flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
-                fontSize: 14, fontFamily: 'inherit', outline: 'none',
-                resize: 'none', overflowY: 'auto', overflowX: 'hidden', maxHeight: '120px', minHeight: '40px',
+                fontSize: 16, fontFamily: 'inherit', outline: 'none',
+                resize: 'none', overflowY: 'auto', overflowX: 'hidden', maxHeight: 120, minHeight: 40,
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                lineHeight: '1.4', padding: 0,
+                WebkitAppearance: 'none',
               }}
             />
             {hasVoice && (
