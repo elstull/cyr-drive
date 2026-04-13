@@ -53,7 +53,8 @@ function BottomNav({ role, activeTab, onNav, onSignOut }) {
           <button key={tab.id}
             onClick={() => isExit ? onSignOut() : onNav(tab.id)}
             style={{
-              background: 'none', border: 'none', cursor: 'pointer',
+              background: (active && !isExit) ? '#4a90d922' : 'none',
+              borderRadius: 8, border: 'none', cursor: 'pointer',
               display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
               gap: 4, padding: '6px 14px', minWidth: 60,
               WebkitTapHighlightColor: 'transparent',
