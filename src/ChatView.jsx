@@ -265,14 +265,17 @@ export default function ChatView({ currentUser, users, supabase }) {
             background: '#111827', border: '1px solid #3a4a5e', borderRadius: 12,
             padding: '10px 14px',
           }}>
-            <input
+            <textarea
+              rows={1}
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
               placeholder={isListening ? 'Listening...' : 'Type your message...'}
               style={{
                 flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
                 fontSize: 14, fontFamily: 'inherit', outline: 'none',
+                resize: 'none', overflowY: 'auto', maxHeight: '120px', minHeight: '40px',
               }}
             />
             {hasVoice && (

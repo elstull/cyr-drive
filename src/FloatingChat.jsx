@@ -272,16 +272,19 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
             color: showHistory ? '#4a90d9' : DIM, fontSize: 11,
             fontFamily: 'inherit', flexShrink: 0,
           }}>{showHistory ? '\uD83D\uDCAC' : '\uD83D\uDCCB'}</button>
-        <input
+        <textarea
+          rows={1}
           value={input}
           onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
           placeholder={showHistory ? 'Switch to chat...' : 'Ask...'}
           disabled={showHistory}
           style={{
             flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0',
             fontSize: 13, fontFamily: 'inherit', outline: 'none',
             opacity: showHistory ? 0.4 : 1,
+            resize: 'none', overflowY: 'auto', maxHeight: '120px', minHeight: '40px',
           }}
         />
         <button onClick={sendMessage} disabled={!input.trim() || showHistory} style={{
