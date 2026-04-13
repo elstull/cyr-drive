@@ -97,7 +97,7 @@ export default function ScanDocument({ supabase, currentUser, users, onClose, ac
       }
 
       // ── Step 2: Save to documentation table with provenance ──
-      const { error: insertError } = await supabase.from('documentation').insert({
+      const { data: insertedRow, error: insertError } = await supabase.from('documentation').insert({
         title: docTitle || fileName || 'Untitled Document',
         content: isPaste ? pastedText : `[Scanned document: ${fileName || 'camera capture'}]`,
         category: docType?.id || 'other',
@@ -108,10 +108,26 @@ export default function ScanDocument({ supabase, currentUser, users, onClose, ac
         file_path: storagePath,
         uploaded_by: currentUser,
         created_by: currentUser,
-      });
+      }).select('id').single();
 
       if (insertError) {
         throw new Error('Failed to save document: ' + insertError.message);
+      }
+
+      // Extract text content from uploaded file
+      let textExtracted = false;
+      if (rawFile && storagePath && insertedRow?.id) {
+        try {
+          const extractResp = await fetch('/api/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ docId: insertedRow.id, filePath: storagePath, fileType: rawFile?.type || '' }),
+          });
+          const extractResult = await extractResp.json();
+          textExtracted = extractResult?.extracted || false;
+        } catch (extractErr) {
+          console.error('Text extraction error (non-fatal):', extractErr);
+        }
       }
 
       // ── Step 3: Log activity ──
