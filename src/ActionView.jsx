@@ -356,7 +356,7 @@ function SectionLabel({ text, count, color }) {
 // MAIN HOME SCREEN
 // ═══════════════════════════════════════════════════════════════════════════
 
-export default function ActionView({ currentUser, users, supabase, onScan }) {
+export default function ActionView({ currentUser, users, supabase, onScan, onDocs }) {
   const [workQueue, setWorkQueue] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [sharedItems, setSharedItems] = useState([]);
@@ -664,6 +664,19 @@ export default function ActionView({ currentUser, users, supabase, onScan }) {
         }}>
           <span style={{ fontSize: 18 }}>{'\uD83D\uDCF7'}</span>
           Scan or Upload Document
+        </button>
+      )}
+      {!loading && (
+        <button onClick={onDocs} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          width: '100%', padding: '12px', marginBottom: 16,
+          background: '#111827', border: '1px solid #1e293b', borderRadius: 12,
+          color: '#e2e8f0', fontSize: 14, fontWeight: 600,
+          cursor: 'pointer', fontFamily: 'inherit',
+          WebkitTapHighlightColor: 'transparent',
+        }}>
+          <span style={{ fontSize: 18 }}>{'\uD83D\uDCC2'}</span>
+          Manage Documents
         </button>
       )}
 
