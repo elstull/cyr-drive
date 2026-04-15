@@ -59,7 +59,14 @@ mermaid.initialize({
     padding: 8,
     dividerColor: '#1e293b',
   },
-  themeCSS: '.state-note { display: none; } .divider { stroke: #1e293b; } .cluster rect { rx: 8; }',
+  themeCSS: `
+    .statediagram-cluster rect { fill: transparent !important; stroke: transparent !important; }
+    .statediagram-cluster line { stroke: transparent !important; }
+    .divider { stroke: transparent !important; }
+    .cluster rect { fill: transparent !important; stroke: transparent !important; }
+    .nodeLabel { color: #e0e8f0 !important; }
+    rect.basic { rx: 6 !important; }
+  `,
   fontFamily: 'Arial, sans-serif',
   fontSize: 14,
   securityLevel: 'strict',
