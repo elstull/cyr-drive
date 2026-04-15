@@ -19,6 +19,49 @@ const BLUE = '#4a90d9';
 const GREEN = '#4ade80';
 const RED = '#e03030';
 
+// If the user asked for a chart/pie/visualization and the reply contains a
+// markdown table with a numeric second column, append an auto-generated
+// Mermaid pie chart so the frontend can render it.
+function maybeAppendPieChart(userMessage, reply) {
+  const trigger = /\b(pie|chart|visualize)\b/i;
+  if (!userMessage || !trigger.test(userMessage)) return reply;
+  if (/```mermaid/i.test(reply)) return reply;
+
+  const lines = reply.split('\n');
+  let headerIdx = -1;
+  for (let i = 0; i < lines.length - 1; i++) {
+    if (/^\s*\|.+\|\s*$/.test(lines[i]) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0) return reply;
+
+  const rows = [];
+  for (let i = headerIdx + 2; i < lines.length; i++) {
+    if (!/^\s*\|.+\|\s*$/.test(lines[i])) break;
+    const cells = lines[i].split('|').slice(1, -1).map(s => s.trim());
+    if (cells.length < 2) continue;
+    const label = cells[0];
+    const num = parseFloat(cells[1].replace(/[$,%\s]/g, ''));
+    if (!label || !isFinite(num)) continue;
+    rows.push([label, num]);
+  }
+  if (rows.length < 2) return reply;
+
+  const headerCells = lines[headerIdx].split('|').slice(1, -1).map(s => s.trim());
+  const title = headerCells[0] || 'Data';
+  const chart = [
+    '```mermaid',
+    'pie showData',
+    `    title ${title}`,
+    ...rows.map(([label, n]) => `    "${label.replace(/"/g, '')}" : ${n}`),
+    '```',
+  ].join('\n');
+
+  return reply + '\n\n' + chart;
+}
+
 
 export default function ChatView({ currentUser, users, supabase }) {
   const [messages, setMessages] = useState([]);
@@ -141,7 +184,8 @@ export default function ChatView({ currentUser, users, supabase }) {
         body: JSON.stringify({ message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
       });
       const data = await response.json();
-      const reply = data?.reply || 'I had trouble connecting. Please try again.';
+      const rawReply = data?.reply || 'I had trouble connecting. Please try again.';
+      const reply = maybeAppendPieChart(msg, rawReply);
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 && m.pending
           ? { role: 'assistant', content: reply, time: time() }
