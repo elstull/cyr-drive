@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { CodeBlockRenderer } from './MermaidBlock';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CHAT VIEW — Dashboard-style layout for conversations and history
@@ -226,7 +227,7 @@ export default function ChatView({ currentUser, users, supabase }) {
                       </div>
                     ) : (
                       <div className="chat-md">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlockRenderer }}>{m.content}</ReactMarkdown>
                       </div>
                     )
                   ) : (
