@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlockRenderer } from './MermaidBlock';
+import { injectCharts } from './chartInjector';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CHAT VIEW — Dashboard-style layout for conversations and history
@@ -186,9 +187,10 @@ export default function ChatView({ currentUser, users, supabase }) {
       const data = await response.json();
       const rawReply = data?.reply || 'I had trouble connecting. Please try again.';
       const reply = maybeAppendPieChart(msg, rawReply);
+      const processedReply = injectCharts(msg, reply);
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 && m.pending
-          ? { role: 'assistant', content: reply, time: time() }
+          ? { role: 'assistant', content: processedReply, time: time() }
           : m
       ));
     } catch (err) {
