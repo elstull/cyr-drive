@@ -22,7 +22,7 @@ const RED = '#e03030';
 // If the user asked for a chart/pie/visualization and the reply contains a
 // markdown table with a numeric second column, append an auto-generated
 // Mermaid pie chart so the frontend can render it.
-function maybeAppendPieChart(userMessage, reply) {
+function injectCharts(userMessage, reply) {
   const trigger = /\b(pie|chart|visualize)\b/i;
   if (!userMessage || !trigger.test(userMessage)) return reply;
   if (/```mermaid/i.test(reply)) return reply;
@@ -50,7 +50,7 @@ function maybeAppendPieChart(userMessage, reply) {
   if (rows.length < 2) return reply;
 
   const headerCells = lines[headerIdx].split('|').slice(1, -1).map(s => s.trim());
-  const title = headerCells[0] || 'Data';
+  const title = headerCells[0] || 'Data Breakdown';
   const chart = [
     '```mermaid',
     'pie showData',
@@ -185,7 +185,7 @@ export default function ChatView({ currentUser, users, supabase }) {
       });
       const data = await response.json();
       const rawReply = data?.reply || 'I had trouble connecting. Please try again.';
-      const reply = maybeAppendPieChart(msg, rawReply);
+      const reply = injectCharts(msg, rawReply);
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 && m.pending
           ? { role: 'assistant', content: reply, time: time() }
