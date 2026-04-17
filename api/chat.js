@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// UNIFIED CHAT API — v3.1.0
+// UNIFIED CHAT API — v4.0.0
 //
 // Vercel serverless function. Lives in the golden repo.
 // One push deploys to ALL instances automatically.
@@ -10,22 +10,23 @@
 //   SUPABASE_SERVICE_ROLE_KEY
 //   ANTHROPIC_API_KEY
 //
-// The code is IDENTICAL. The data makes each instance unique.
+// The code is IDENTICAL across instances. The data makes each one unique.
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { createClient } from '@supabase/supabase-js';
 
+// Opus 4.7 pricing: $5/M input, $25/M output tokens
+const INPUT_COST_PER_TOKEN = 5.0 / 1_000_000;
+const OUTPUT_COST_PER_TOKEN = 25.0 / 1_000_000;
+const MODEL = 'claude-opus-4-7';
+
 export default async function handler(req, res) {
   // CORS
-  if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'content-type');
-    return res.status(200).end();
-  }
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type');
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
     const { message, history, userId, userName } = req.body;
@@ -45,7 +46,7 @@ export default async function handler(req, res) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // ── Read instance config from database ──
+    // ── Instance config ──
     let instanceCode = "FSM", instanceName = "FSM Drive", customerName = "Customer", domainContext = "";
     try {
       const { data: config } = await supabase.from("instance_config").select("key, value");
@@ -58,7 +59,90 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // ── Team context ──
+    // ══════════════════════════════════════════════════════════
+    // CHART INJECTION — Generate charts server-side from live data
+    // ══════════════════════════════════════════════════════════
+    const msgLower = message.toLowerCase();
+    const wantsChart = msgLower.includes('pie') || msgLower.includes('chart')
+      || (msgLower.includes('draw') && (msgLower.includes('visual') || msgLower.includes('diagram')));
+    const isFinancial = msgLower.includes('expense') || msgLower.includes('cost')
+      || msgLower.includes('vendor') || msgLower.includes('financial')
+      || msgLower.includes('spend') || msgLower.includes('budget')
+      || msgLower.includes('p&l') || msgLower.includes('pnl');
+
+    if (wantsChart) {
+      let chartReply = '';
+
+      if (isFinancial) {
+        // ── Financial / vendor / expense charts ──
+        const { data: vendors } = await supabase.from("pnl_fsm_support_by_vendor").select("*");
+        const { data: lineItems } = await supabase.from("pnl_fsm_support_by_line_item").select("*");
+
+        if (vendors && vendors.length > 0) {
+          chartReply = "Here's the FSM Drive vendor cost breakdown:\n";
+          chartReply += '\n```mermaid\npie title FSM Drive Costs by Vendor';
+          for (const v of vendors) { chartReply += `\n    "${v.vendor}" : ${Number(v.vendor_total)}`; }
+          chartReply += '\n```\n';
+        }
+
+        if (lineItems && lineItems.length > 0) {
+          chartReply += '\n```mermaid\npie title FSM Drive Costs by Line Item';
+          for (const li of lineItems) {
+            if (Number(li.running_total) > 0) {
+              chartReply += `\n    "${li.line_item}" : ${Number(li.running_total)}`;
+            }
+          }
+          chartReply += '\n```\n';
+
+          // Summary table
+          chartReply += '\n| Vendor | Line Item | Type | YTD |\n|---|---|---|---|';
+          for (const li of lineItems) {
+            const type = li.usage_based ? 'variable' : `$${Number(li.current_rate)}/${li.cadence}`;
+            chartReply += `\n| ${li.vendor} | ${li.line_item} | ${type} | $${Number(li.running_total).toFixed(2)} |`;
+          }
+          const total = lineItems.reduce((sum, li) => sum + Number(li.running_total), 0);
+          chartReply += `\n| **Total** | | | **$${total.toFixed(2)}** |`;
+        }
+
+        if (!chartReply) { chartReply = 'No vendor cost data found.'; }
+
+      } else {
+        // ── Instance status charts ──
+        const { data: allInstances } = await supabase.from("fsm_instances").select("status, fsm_name");
+        chartReply = "Here's your FSM instance breakdown:\n";
+        if (allInstances && allInstances.length > 0) {
+          const statusCounts = {};
+          allInstances.forEach(i => { statusCounts[i.status] = (statusCounts[i.status] || 0) + 1; });
+          chartReply += '\n```mermaid\npie title FSM Instances by Status';
+          for (const s of Object.keys(statusCounts)) { chartReply += `\n    "${s}" : ${statusCounts[s]}`; }
+          chartReply += '\n```\n';
+          const typeCounts = {};
+          allInstances.forEach(i => { typeCounts[i.fsm_name] = (typeCounts[i.fsm_name] || 0) + 1; });
+          chartReply += '\n```mermaid\npie title Instances by FSM Type';
+          for (const t of Object.keys(typeCounts)) { chartReply += `\n    "${t}" : ${typeCounts[t]}`; }
+          chartReply += '\n```\n';
+          chartReply += `\n${allInstances.length} total instances across ${Object.keys(typeCounts).length} FSM types.`;
+        } else { chartReply += '\nNo instances found.'; }
+      }
+
+      // Log as zero-cost (no model invoked)
+      try {
+        await supabase.from("api_usage_log").insert({
+          instance_code: instanceCode, user_id: user,
+          input_tokens: 0, output_tokens: 0, total_tokens: 0,
+          model: 'server-generated', estimated_cost_usd: 0,
+          message_preview: message.substring(0, 100)
+        });
+      } catch {}
+
+      return res.status(200).json({ reply: chartReply });
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // NORMAL PATH — Build context, call Opus 4.7
+    // ══════════════════════════════════════════════════════════
+
+    // Team
     let teamContext = "No team members found.";
     try {
       const { data: team } = await supabase.from("fsm_users").select("id, name, role, email").order("name");
@@ -67,14 +151,12 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // ── FSM summary ──
+    // FSM summary
+    const { data: fsmSummary } = await supabase.rpc("get_fsm_summary");
     let fsmContext = "FSM summary not available.";
-    try {
-      const { data: fsmSummary } = await supabase.rpc("get_fsm_summary");
-      if (fsmSummary) { fsmContext = "FSM Summary:\n" + JSON.stringify(fsmSummary, null, 2); }
-    } catch {}
+    if (fsmSummary) { fsmContext = "FSM Summary:\n" + JSON.stringify(fsmSummary, null, 2); }
 
-    // ── Active instances ──
+    // Active instances
     let instanceContext = "";
     try {
       const { data: instances } = await supabase.from("fsm_instances")
@@ -86,12 +168,14 @@ export default async function handler(req, res) {
           instanceContext += `\n- [${inst.id}] ${inst.label || inst.fsm_name}`;
           instanceContext += `\n  FSM: ${inst.fsm_name} | State: ${inst.current_state_name} | Status: ${inst.status} | Priority: ${inst.priority || 'normal'}`;
           instanceContext += `\n  Lead: ${inst.started_by} | Entity: ${inst.entity_type}/${inst.entity_id}`;
-          if (inst.memory && Object.keys(inst.memory).length > 0) { instanceContext += `\n  Data: ${JSON.stringify(inst.memory)}`; }
+          if (inst.memory && Object.keys(inst.memory).length > 0) {
+            instanceContext += `\n  Data: ${JSON.stringify(inst.memory)}`;
+          }
         }
       }
     } catch {}
 
-    // ── Transition history ──
+    // Recent transitions
     let transitionContext = "";
     try {
       const { data: transitions } = await supabase.from("instance_transitions")
@@ -107,7 +191,7 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // ── Advisories ──
+    // Pending advisories
     let advisoryContext = "";
     if (user) {
       try {
@@ -121,7 +205,7 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    // ── Resources ──
+    // Resources
     let resourceContext = "";
     try {
       const { data: dbSize } = await supabase.rpc("get_database_size");
@@ -129,7 +213,7 @@ export default async function handler(req, res) {
       resourceContext = `\nResources: DB ${dbSize || '?'}, Team ${uc?.length || 0}/10`;
     } catch {}
 
-    // ── Financial context ──
+    // Financial summary (Living P&L)
     let financialContext = "";
     try {
       const { data: pnlProcess } = await supabase.from("pnl_by_process").select("*");
@@ -157,7 +241,57 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // ── Document awareness with lifecycle ──
+    // Vendor / recurring charges context
+    let vendorContext = "";
+    try {
+      const { data: vendors } = await supabase.from("pnl_fsm_support_by_vendor").select("*");
+      if (vendors && vendors.length > 0) {
+        vendorContext = "\n\nVENDOR COSTS (FSM Drive):";
+        for (const v of vendors) {
+          vendorContext += `\n  ${v.vendor}: $${Number(v.vendor_total).toLocaleString()} total (${v.months_active} months, avg $${Number(v.avg_monthly).toLocaleString()}/mo) \u2014 ${v.vendor_status}`;
+        }
+      }
+      const { data: lineItems } = await supabase.from("pnl_fsm_support_by_line_item").select("*");
+      if (lineItems && lineItems.length > 0) {
+        vendorContext += "\n\n  LINE ITEMS:";
+        for (const li of lineItems) {
+          vendorContext += `\n    ${li.vendor} / ${li.line_item}: $${Number(li.running_total).toLocaleString()} YTD${li.usage_based ? ' (usage-based)' : ' @ $' + Number(li.current_rate).toLocaleString() + '/' + li.cadence}`;
+        }
+      }
+      const { data: reimb } = await supabase.from("reimbursements_owed").select("*");
+      if (reimb && reimb.length > 0) {
+        vendorContext += "\n\n  REIMBURSEMENTS OWED:";
+        for (const r of reimb) {
+          vendorContext += `\n    ${r.owner}: $${Number(r.amount_owed).toLocaleString()} (${r.charge_count} charges via ${r.account_name})`;
+        }
+      }
+    } catch {}
+
+    // API usage context
+    let apiUsageContext = "";
+    try {
+      const { data: usage } = await supabase.from("api_usage_monthly").select("*").limit(3);
+      if (usage && usage.length > 0) {
+        apiUsageContext = "\n\nAPI USAGE:";
+        for (const u of usage) {
+          apiUsageContext += `\n  ${u.usage_month}: ${u.api_calls} calls, ${u.total_tokens?.toLocaleString()} tokens, est. $${Number(u.estimated_cost).toFixed(2)} (${u.unique_users} users)`;
+        }
+      }
+    } catch {}
+
+    // Payment accounts
+    let paymentContext = "";
+    try {
+      const { data: accounts } = await supabase.from("payment_accounts").select("*").eq("status", "active");
+      if (accounts && accounts.length > 0) {
+        paymentContext = "\n\nPAYMENT ACCOUNTS:";
+        for (const a of accounts) {
+          paymentContext += `\n  ${a.name} (${a.account_type}) \u2014 Owner: ${a.owner}, Status: ${a.status}${a.reimbursable ? ', REIMBURSABLE' : ''}`;
+        }
+      }
+    } catch {}
+
+    // Documents
     let documentContext = "";
     try {
       const { data: docs } = await supabase.from("documentation")
@@ -166,7 +300,6 @@ export default async function handler(req, res) {
       if (docs && docs.length > 0) {
         const activeDocs = docs.filter(d => d.status === 'active' || !d.status);
         const supersededDocs = docs.filter(d => d.status === 'superseded');
-
         if (activeDocs.length > 0) {
           documentContext = "\n\nACTIVE DOCUMENTS:";
           for (const d of activeDocs) {
@@ -179,12 +312,38 @@ export default async function handler(req, res) {
             if (contentPreview) { documentContext += `\n  Content: ${contentPreview}`; }
           }
         }
-
         if (supersededDocs.length > 0) {
           documentContext += "\n\nSUPERSEDED DOCUMENTS (replaced \u2014 use with caution):";
           for (const d of supersededDocs) {
             documentContext += `\n  #${d.id}: ${d.title} [SUPERSEDED by #${d.superseded_by}]`;
             if (d.version) documentContext += ` (was ${d.version})`;
+          }
+        }
+      }
+    } catch {}
+
+    // FSM definitions (for diagram generation)
+    let fsmDefinitionsContext = "";
+    try {
+      const { data: defs } = await supabase.from("fsm_definitions").select("fsm_name, description");
+      const { data: states } = await supabase.from("fsm_states").select("fsm_name, state_id, label");
+      const { data: trans } = await supabase.from("fsm_transitions_def").select("fsm_name, from_state_id, to_state_id, label");
+      if (defs && states && trans) {
+        fsmDefinitionsContext = "\n\nFSM DEFINITIONS (for diagram generation):";
+        for (const d of defs) {
+          fsmDefinitionsContext += `\n\n  FSM: ${d.fsm_name}${d.description ? ' \u2014 ' + d.description : ''}`;
+          const fsmStates = states.filter(s => s.fsm_name === d.fsm_name);
+          const fsmTrans = trans.filter(t => t.fsm_name === d.fsm_name);
+          if (fsmStates.length > 0) {
+            fsmDefinitionsContext += `\n    States: ${fsmStates.map(s => s.label || s.state_id).join(', ')}`;
+          }
+          if (fsmTrans.length > 0) {
+            fsmDefinitionsContext += `\n    Transitions:`;
+            for (const t of fsmTrans) {
+              const fromLabel = fsmStates.find(s => s.state_id === t.from_state_id)?.label || t.from_state_id;
+              const toLabel = fsmStates.find(s => s.state_id === t.to_state_id)?.label || t.to_state_id;
+              fsmDefinitionsContext += `\n      ${fromLabel} --> ${toLabel}${t.label ? ': ' + t.label : ''}`;
+            }
           }
         }
       }
@@ -200,53 +359,73 @@ TEAM:
 ${teamContext}
 
 OPERATIONAL STATE:
-${fsmContext}${instanceContext}${transitionContext}${advisoryContext}${resourceContext}${financialContext}${documentContext}
+${fsmContext}${instanceContext}${transitionContext}${advisoryContext}${resourceContext}${financialContext}${vendorContext}${apiUsageContext}${paymentContext}${documentContext}${fsmDefinitionsContext}
 
 RULES:
 1. PROBLEM-SOLUTION: Never present dead ends. Always offer actions.
 2. INSTANCE AWARENESS: You have full instance details, transition history, and financial data.
 3. ADVISORY AWARENESS: Present CRITICAL first, OVERDUE prominently, PRIORITY early.
-4. FINANCIAL INTELLIGENCE: You have the Living P&L. Compute revenue, costs, margins, AR from actual data.
+4. FINANCIAL INTELLIGENCE: You have the Living P&L, vendor costs, reimbursement data, and API usage. Compute from actual data.
 5. DOCUMENT AWARENESS: Cite document title, source, and who provided it.
 6. SOURCE ATTRIBUTION: Always attribute facts to their sources.
-7. DOCUMENT LIFECYCLE: Prefer ACTIVE documents. If referencing a superseded document, warn: "Note: this references [title] which has been superseded by [replacement]. The current version may differ." If asked about a superseded document, explain when and by what it was replaced.
+7. DOCUMENT LIFECYCLE: Prefer ACTIVE documents. Warn when referencing superseded documents.
 8. STYLE: Direct, warm, competent. Use names. Format with tables when appropriate.
-9. DOMAIN: ${domainContext}`;
+9. DOMAIN: ${domainContext}
+10. VISUAL DIAGRAMS: When asked to show, visualize, diagram, draw, or chart, output a mermaid fenced code block. The frontend renders it visually. Use real data. For FSM workflows use stateDiagram-v2. For distributions use pie. For processes use flowchart. Keep to 15 nodes max.`;
 
-    // ── Call Anthropic ──
+    // ── Call Anthropic API ──
+    const realHistory = (Array.isArray(history) ? history : []).slice(-12).map(m => ({ role: m.role, content: m.content }));
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2023-06-01"
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: MODEL,
         max_tokens: 4096,
         system: systemPrompt,
-        messages: [
-          ...(Array.isArray(history) ? history : []).slice(-12).map(m => ({ role: m.role, content: m.content })),
-          { role: "user", content: message },
-        ],
-      }),
+        messages: [...realHistory, { role: "user", content: message }]
+      })
     });
 
     const data = await response.json();
-
-    if (data.error) {
-      console.error("Anthropic API error:", JSON.stringify(data.error));
-    }
+    if (data.error) { console.error("Anthropic API error:", JSON.stringify(data.error)); }
+    if (!response.ok) { console.error("Anthropic API non-OK:", response.status, JSON.stringify(data)); }
 
     const reply = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n")
       || "I'm having trouble connecting right now. Please try again in a moment.";
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // ── Log API usage ──
+    try {
+      const usage = data.usage;
+      if (usage) {
+        const inputTokens = usage.input_tokens || 0;
+        const outputTokens = usage.output_tokens || 0;
+        const totalTokens = inputTokens + outputTokens;
+        const estimatedCost = (inputTokens * INPUT_COST_PER_TOKEN) + (outputTokens * OUTPUT_COST_PER_TOKEN);
+        await supabase.from("api_usage_log").insert({
+          instance_code: instanceCode,
+          user_id: user,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          total_tokens: totalTokens,
+          model: MODEL,
+          estimated_cost_usd: Number(estimatedCost.toFixed(6)),
+          message_preview: message.substring(0, 100)
+        });
+      }
+    } catch (logErr) {
+      console.error("Usage log error:", logErr);
+    }
+
     return res.status(200).json({ reply });
 
   } catch (error) {
     console.error("Chat API error:", error.message);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    return res.status(200).json({ reply: "I'm having trouble connecting right now. Please try again in a moment." });
+    return res.status(200).json({
+      reply: "I'm having trouble connecting right now. Please try again in a moment."
+    });
   }
 }
