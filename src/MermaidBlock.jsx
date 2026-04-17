@@ -2,14 +2,11 @@ import { useEffect, useRef, useState, Component } from 'react';
 import mermaid from 'mermaid';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MERMAID DIAGRAM RENDERER — v2.0 with Error Boundary
-//
-// Renders Mermaid diagram markup inline in Chat responses.
-// Includes React Error Boundary so rendering failures show a
-// graceful fallback instead of white-screening the entire app.
+// MERMAID DIAGRAM RENDERER — v2.1
+// Fix: React error #60 — cannot have both dangerouslySetInnerHTML and
+// children on the same element. Now uses conditional rendering.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Initialize Mermaid with FSM Drive theme
 let mermaidInitialized = false;
 function ensureMermaidInit() {
   if (mermaidInitialized) return;
@@ -38,7 +35,6 @@ function ensureMermaidInit() {
         noteBkgColor: '#2a2a3e',
         noteTextColor: '#c0c8d0',
         noteBorderColor: '#4a90d9',
-        // Pie chart specific
         pie1: '#4a90d9',
         pie2: '#4ade80',
         pie3: '#f59e0b',
@@ -81,10 +77,8 @@ function ensureMermaidInit() {
   }
 }
 
-let diagramCounter = 0;
-
 // ═══════════════════════════════════════════════════════════════════════════
-// ERROR BOUNDARY — catches React rendering errors in diagram components
+// ERROR BOUNDARY
 // ═══════════════════════════════════════════════════════════════════════════
 class DiagramErrorBoundary extends Component {
   constructor(props) {
@@ -97,7 +91,7 @@ class DiagramErrorBoundary extends Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.warn('Mermaid diagram rendering error caught by boundary:', error, errorInfo);
+    console.warn('Mermaid diagram error caught by boundary:', error, errorInfo);
   }
 
   render() {
@@ -117,14 +111,6 @@ class DiagramErrorBoundary extends Component {
           <div style={{ color: '#6b7280' }}>
             {this.state.error?.message || 'Unknown rendering error'}
           </div>
-          {this.props.code && (
-            <details style={{ marginTop: 8 }}>
-              <summary style={{ cursor: 'pointer', color: '#4a90d9', fontSize: 11 }}>Show source</summary>
-              <pre style={{ marginTop: 4, whiteSpace: 'pre-wrap', color: '#8899aa', fontSize: 11 }}>
-                {this.props.code}
-              </pre>
-            </details>
-          )}
         </div>
       );
     }
@@ -133,10 +119,9 @@ class DiagramErrorBoundary extends Component {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// MERMAID BLOCK — renders a single Mermaid diagram
+// MERMAID BLOCK
 // ═══════════════════════════════════════════════════════════════════════════
 function MermaidBlockInner({ code }) {
-  const containerRef = useRef(null);
   const [svg, setSvg] = useState('');
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(true);
@@ -149,7 +134,7 @@ function MermaidBlockInner({ code }) {
     const renderDiagram = async () => {
       try {
         const cleanCode = code.trim();
-        const id = `mermaid-render-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const id = `mermaid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const { svg: renderedSvg } = await mermaid.render(id, cleanCode);
         setSvg(renderedSvg);
         setError(null);
@@ -213,9 +198,8 @@ function MermaidBlockInner({ code }) {
         </span>
       </div>
 
-      {expanded && (
+      {expanded && svg && (
         <div
-          ref={containerRef}
           style={{
             padding: '16px',
             display: 'flex',
@@ -224,23 +208,30 @@ function MermaidBlockInner({ code }) {
             minHeight: 100,
             overflow: 'auto',
           }}
-          dangerouslySetInnerHTML={svg ? { __html: svg } : undefined}
-        >
-          {!svg && (
-            <div style={{ color: '#6b7280', fontSize: 12 }}>
-              Rendering diagram...
-            </div>
-          )}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      )}
+
+      {expanded && !svg && (
+        <div style={{
+          padding: '16px',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          minHeight: 100,
+        }}>
+          <div style={{ color: '#6b7280', fontSize: 12 }}>
+            Rendering diagram...
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// Wrap in error boundary
 export default function MermaidBlock({ code }) {
   return (
-    <DiagramErrorBoundary code={code}>
+    <DiagramErrorBoundary>
       <MermaidBlockInner code={code} />
     </DiagramErrorBoundary>
   );
@@ -249,22 +240,19 @@ export default function MermaidBlock({ code }) {
 // ═══════════════════════════════════════════════════════════════════════════
 // CUSTOM CODE RENDERER FOR REACTMARKDOWN
 // ═══════════════════════════════════════════════════════════════════════════
-
 export function CodeBlockRenderer({ node, inline, className, children, ...props }) {
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : '';
 
-  // Mermaid diagrams
   if (!inline && language === 'mermaid') {
     const code = String(children).replace(/\n$/, '');
     return (
-      <DiagramErrorBoundary code={code}>
+      <DiagramErrorBoundary>
         <MermaidBlockInner code={code} />
       </DiagramErrorBoundary>
     );
   }
 
-  // Regular code blocks
   if (!inline && language) {
     return (
       <pre style={{
@@ -284,7 +272,6 @@ export function CodeBlockRenderer({ node, inline, className, children, ...props 
     );
   }
 
-  // Inline code
   return (
     <code
       style={{
