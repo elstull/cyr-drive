@@ -48,25 +48,9 @@ mermaid.initialize({
     noteBkgColor: '#2a2a3e',
     noteTextColor: '#c0c8d0',
     noteBorderColor: '#4a90d9',
-    stateBorder: '#4a90d9',
-    stateBkg: '#1e293b',
-    nodeSpacing: 30,
-    rankSpacing: 30,
   },
   flowchart: { curve: 'basis', padding: 20 },
   sequence: { actorMargin: 50, mirrorActors: false },
-  state: {
-    padding: 8,
-    dividerColor: '#1e293b',
-  },
-  themeCSS: `
-    .statediagram-cluster rect { fill: transparent !important; stroke: transparent !important; }
-    .statediagram-cluster line { stroke: transparent !important; }
-    .divider { stroke: transparent !important; }
-    .cluster rect { fill: transparent !important; stroke: transparent !important; }
-    .nodeLabel { color: #e0e8f0 !important; }
-    rect.basic { rx: 6 !important; }
-  `,
   fontFamily: 'Arial, sans-serif',
   fontSize: 14,
   securityLevel: 'strict',
