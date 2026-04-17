@@ -1,15 +1,15 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// TEXT EXTRACTION API — v1.0.0
+// TEXT EXTRACTION API — v1.1.0
 //
 // Vercel serverless function. Extracts text from uploaded documents.
-// Supports PDF (via pdf-parse) and DOCX (via mammoth).
+// PDF: via Anthropic API (handles scanned docs, complex layouts, tables)
+// DOCX: via mammoth
+// TXT: direct read
 //
 // Usage:
 //   POST /api/extract-text
 //   { "documentId": 35 }           — extract one document
 //   { "extractAll": true }         — extract all unprocessed documents
-//
-// Called automatically after upload, or manually to backfill.
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { createClient } from '@supabase/supabase-js';
@@ -26,6 +26,7 @@ export default async function handler(req, res) {
 
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
       return res.status(200).json({ error: 'Database not configured' });
@@ -34,27 +35,33 @@ export default async function handler(req, res) {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
     // Find documents that need extraction
-    let query = supabase.from('documentation')
-      .select('id, title, file_path, content')
-      .not('file_path', 'is', null);
+    let docs = [];
 
     if (documentId) {
-      query = query.eq('id', documentId);
+      const { data, error } = await supabase
+        .from('documentation')
+        .select('id, title, file_path, content')
+        .eq('id', documentId);
+      if (error) return res.status(200).json({ error: 'Query failed', detail: error.message });
+      docs = data || [];
     } else if (extractAll) {
-      // Find docs with placeholder content (not yet extracted)
-      query = query.or('content.is.null,content.like.[%,content.like.%not yet supported%');
+      // Find docs with placeholder content
+      const { data, error } = await supabase
+        .from('documentation')
+        .select('id, title, file_path, content')
+        .not('file_path', 'is', null);
+      if (error) return res.status(200).json({ error: 'Query failed', detail: error.message });
+      // Filter to only those with placeholder or missing content
+      docs = (data || []).filter(d =>
+        !d.content ||
+        d.content.length < 200 ||
+        d.content.startsWith('[')
+      );
     } else {
       return res.status(200).json({ error: 'Provide documentId or extractAll: true' });
     }
 
-    const { data: docs, error: queryError } = await query;
-
-    if (queryError) {
-      console.error('Query error:', queryError);
-      return res.status(200).json({ error: 'Failed to query documents', detail: queryError.message });
-    }
-
-    if (!docs || docs.length === 0) {
+    if (docs.length === 0) {
       return res.status(200).json({ message: 'No documents to extract', processed: 0 });
     }
 
@@ -62,7 +69,7 @@ export default async function handler(req, res) {
 
     for (const doc of docs) {
       try {
-        // Skip if already has real content (not a placeholder)
+        // Skip if already has real content
         if (doc.content && doc.content.length > 200 && !doc.content.startsWith('[')) {
           results.push({ id: doc.id, title: doc.title, status: 'skipped', reason: 'already has content' });
           continue;
@@ -88,21 +95,66 @@ export default async function handler(req, res) {
         let extractedText = '';
 
         if (ext === 'pdf') {
-          // PDF extraction
-          const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
+          // ── PDF extraction via Anthropic API ──
+          if (!anthropicKey) {
+            results.push({ id: doc.id, title: doc.title, status: 'error', reason: 'ANTHROPIC_API_KEY not configured for PDF extraction' });
+            continue;
+          }
+
           const buffer = Buffer.from(await fileData.arrayBuffer());
-          const pdfData = await pdfParse(buffer);
-          extractedText = pdfData.text;
+          const base64 = buffer.toString('base64');
+
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+            },
+            body: JSON.stringify({
+              model: 'claude-sonnet-4-6',  // Use Sonnet for extraction — cheaper than Opus
+              max_tokens: 8192,
+              messages: [{
+                role: 'user',
+                content: [
+                  {
+                    type: 'document',
+                    source: {
+                      type: 'base64',
+                      media_type: 'application/pdf',
+                      data: base64,
+                    },
+                  },
+                  {
+                    type: 'text',
+                    text: 'Extract all text content from this document. Preserve the structure including headings, paragraphs, lists, and tables. Output only the extracted text, no commentary. If the document contains tables, format them clearly with columns aligned.',
+                  },
+                ],
+              }],
+            }),
+          });
+
+          const apiData = await response.json();
+
+          if (apiData.error) {
+            results.push({ id: doc.id, title: doc.title, status: 'error', reason: 'API error: ' + apiData.error.message });
+            continue;
+          }
+
+          extractedText = apiData.content
+            ?.filter(b => b.type === 'text')
+            .map(b => b.text)
+            .join('\n') || '';
 
         } else if (ext === 'docx') {
-          // DOCX extraction
+          // ── DOCX extraction via mammoth ──
           const mammoth = await import('mammoth');
           const buffer = Buffer.from(await fileData.arrayBuffer());
           const result = await mammoth.extractRawText({ buffer });
           extractedText = result.value;
 
         } else if (ext === 'txt') {
-          // Plain text
+          // ── Plain text ──
           extractedText = await fileData.text();
 
         } else {
@@ -110,7 +162,7 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // Clean up extracted text
+        // Clean up
         extractedText = extractedText
           .replace(/\r\n/g, '\n')
           .replace(/\n{3,}/g, '\n\n')
@@ -121,13 +173,13 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // Update the documentation record with extracted text
+        // Update the documentation record
         const { error: updateError } = await supabase
           .from('documentation')
           .update({
             content: extractedText,
             source_type: 'extracted',
-            confidence: 'machine',
+            confidence: ext === 'pdf' ? 'machine' : 'machine',
           })
           .eq('id', doc.id);
 
