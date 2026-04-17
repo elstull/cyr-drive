@@ -13,14 +13,14 @@
 // The code is IDENTICAL across instances. The data makes each one unique.
 // ═══════════════════════════════════════════════════════════════════════════
 
-import { createClient } from '@supabase/supabase-js';
+const { createClient } = require('@supabase/supabase-js');
 
 // Opus 4.7 pricing: $5/M input, $25/M output tokens
 const INPUT_COST_PER_TOKEN = 5.0 / 1_000_000;
 const OUTPUT_COST_PER_TOKEN = 25.0 / 1_000_000;
 const MODEL = 'claude-opus-4-7';
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
