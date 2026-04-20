@@ -16,6 +16,8 @@ import FloatingChat from './FloatingChat.jsx';
 import ScanDocument from './ScanDocument.jsx';
 import DocumentManager from './DocumentManager.jsx';
 import AuthScreen, { signOut } from './AuthScreen.jsx';
+import useRealtimeSync from './hooks/useRealtimeSync';
+import RealtimeToast from './components/RealtimeToast';
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -99,6 +101,11 @@ export default function App() {
   const [showDocs, setShowDocs] = useState(false);
   const [instanceName, setInstanceName] = useState('FSM Drive');
   const channelRefs = useRef([]);
+  const [realtimeEvents, setRealtimeEvents] = useState([]);
+  const handleDataChange = useCallback((event) => {
+    setRealtimeEvents(prev => [...prev.slice(-10), event]);
+  }, []);
+  useRealtimeSync(supabase, handleDataChange);
 
   // Derived users object — replaces the old static USERS dict for child
   // components that expect a { id: { name, email } } lookup map.
@@ -328,6 +335,7 @@ case 'help':
       {renderView()}
       <FloatingChat supabase={supabase} currentUser={currentUser} users={users} activeView={appView} />
       <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut} />
+      <RealtimeToast events={realtimeEvents} />
     </div>
   );
 }
