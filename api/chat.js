@@ -46,6 +46,20 @@ export default async function handler(req, res) {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // ── RBAC: resolve user role ──
+    const ROLE_LEVELS = { owner: 4, admin: 3, member: 2, viewer: 1 };
+    let rbacRole = 'viewer';
+    let rbacLevel = 1;
+    if (userId) {
+      try {
+        const { data: userRow } = await supabase.from('fsm_users').select('rbac_role').eq('id', userId).single();
+        if (userRow?.rbac_role && ROLE_LEVELS[userRow.rbac_role] !== undefined) {
+          rbacRole = userRow.rbac_role;
+          rbacLevel = ROLE_LEVELS[rbacRole];
+        }
+      } catch {}
+    }
+
     // ── Instance config ──
     let instanceCode = "FSM", instanceName = "FSM Drive", customerName = "Customer", domainContext = "";
     try {
@@ -74,7 +88,10 @@ export default async function handler(req, res) {
       let chartReply = '';
 
       if (isFinancial) {
-        // ── Financial / vendor / expense charts ──
+        // ── Financial / vendor / expense charts (owner only) ──
+        if (rbacLevel < 4) {
+          return res.status(200).json({ reply: "Financial data is restricted to owner-level access. Please contact your administrator if you need this information." });
+        }
         const { data: vendors } = await supabase.from("pnl_fsm_support_by_vendor").select("*");
         const { data: lineItems } = await supabase.from("pnl_fsm_support_by_line_item").select("*");
 
@@ -147,7 +164,10 @@ export default async function handler(req, res) {
     try {
       const { data: team } = await supabase.from("fsm_users").select("id, name, role, email").order("name");
       if (team && team.length > 0) {
-        teamContext = team.map(u => `${u.name} (${u.id}) \u2014 ${u.role}${u.email ? ', ' + u.email : ''}`).join("\n");
+        teamContext = team.map(u => {
+          const showEmail = rbacLevel >= 3 && u.email;
+          return `${u.name} (${u.id}) \u2014 ${u.role}${showEmail ? ', ' + u.email : ''}`;
+        }).join("\n");
       }
     } catch {}
 
@@ -213,9 +233,11 @@ export default async function handler(req, res) {
       resourceContext = `\nResources: DB ${dbSize || '?'}, Team ${uc?.length || 0}/10`;
     } catch {}
 
-    // Financial summary (Living P&L)
+    // Financial summary (Living P&L) — owner only
     let financialContext = "";
-    try {
+    if (rbacLevel < 4) {
+      financialContext = "";
+    } else try {
       const { data: pnlProcess } = await supabase.from("pnl_by_process").select("*");
       if (pnlProcess && pnlProcess.length > 0) {
         financialContext = "\n\nFINANCIAL SUMMARY (Living P&L):";
@@ -241,9 +263,11 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // Vendor / recurring charges context
+    // Vendor / recurring charges context — owner only
     let vendorContext = "";
-    try {
+    if (rbacLevel < 4) {
+      vendorContext = "";
+    } else try {
       const { data: vendors } = await supabase.from("pnl_fsm_support_by_vendor").select("*");
       if (vendors && vendors.length > 0) {
         vendorContext = "\n\nVENDOR COSTS (FSM Drive):";
@@ -267,9 +291,11 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // API usage context
+    // API usage context — owner/admin only
     let apiUsageContext = "";
-    try {
+    if (rbacLevel < 3) {
+      apiUsageContext = "";
+    } else try {
       const { data: usage } = await supabase.from("api_usage_monthly").select("*").limit(3);
       if (usage && usage.length > 0) {
         apiUsageContext = "\n\nAPI USAGE:";
@@ -279,9 +305,11 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // Payment accounts
+    // Payment accounts — owner only
     let paymentContext = "";
-    try {
+    if (rbacLevel < 4) {
+      paymentContext = "";
+    } else try {
       const { data: accounts } = await supabase.from("payment_accounts").select("*").eq("status", "active");
       if (accounts && accounts.length > 0) {
         paymentContext = "\n\nPAYMENT ACCOUNTS:";
@@ -295,11 +323,12 @@ export default async function handler(req, res) {
     let documentContext = "";
     try {
       const { data: docs } = await supabase.from("documentation")
-        .select("id, title, content, category, source_type, source_name, confidence, uploaded_by, created_at, status, superseded_by, version, effective_date, expiry_date")
+        .select("id, title, content, category, source_type, source_name, confidence, uploaded_by, created_at, status, superseded_by, version, effective_date, expiry_date, min_role")
         .order("created_at", { ascending: false }).limit(50);
       if (docs && docs.length > 0) {
-        const activeDocs = docs.filter(d => d.status === 'active' || !d.status);
-        const supersededDocs = docs.filter(d => d.status === 'superseded');
+        const roleAllowed = d => !d.min_role || (ROLE_LEVELS[d.min_role] || 1) <= rbacLevel;
+        const activeDocs = docs.filter(d => (d.status === 'active' || !d.status) && roleAllowed(d));
+        const supersededDocs = docs.filter(d => d.status === 'superseded' && roleAllowed(d));
         if (activeDocs.length > 0) {
           documentContext = "\n\nACTIVE DOCUMENTS:";
           for (const d of activeDocs) {
@@ -349,6 +378,15 @@ export default async function handler(req, res) {
       }
     } catch {}
 
+    // ── RBAC notice for restricted users ──
+    let rbacNotice = '';
+    if (rbacLevel < 4) {
+      const restricted = [];
+      if (rbacLevel < 4) restricted.push('financial data', 'vendor costs', 'reimbursements', 'payment accounts');
+      if (rbacLevel < 3) restricted.push('API usage data', 'team email addresses');
+      rbacNotice = `\n\nACCESS LEVEL: ${rbacRole} (level ${rbacLevel}/4). The following data is not available to this user: ${restricted.join(', ')}. If asked about these topics, explain that access is restricted and suggest contacting an administrator. Do NOT guess or fabricate restricted data.`;
+    }
+
     // ── Build system prompt ──
     const systemPrompt = `You are the Chat conductor for ${instanceName}, serving ${customerName}.
 Instance code: ${instanceCode}
@@ -359,7 +397,7 @@ TEAM:
 ${teamContext}
 
 OPERATIONAL STATE:
-${fsmContext}${instanceContext}${transitionContext}${advisoryContext}${resourceContext}${financialContext}${vendorContext}${apiUsageContext}${paymentContext}${documentContext}${fsmDefinitionsContext}
+${fsmContext}${instanceContext}${transitionContext}${advisoryContext}${resourceContext}${financialContext}${vendorContext}${apiUsageContext}${paymentContext}${documentContext}${fsmDefinitionsContext}${rbacNotice}
 
 RULES:
 1. PROBLEM-SOLUTION: Never present dead ends. Always offer actions.
