@@ -134,14 +134,61 @@ export default function ChatView({ currentUser, users, supabase }) {
     setMessages(prev => [...prev, userMsg, { role: 'assistant', content: '', pending: true, time: time() }]);
     setLoading(true);
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    const wantsPresentation = /\b(create|generate|make|build)\b.*\bpresentation\b/i.test(msg);
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(wantsPresentation ? '/api/generate-presentation' : '/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
       });
+
+      if (wantsPresentation && response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        if (contentType.includes('application/vnd') || contentType.includes('octet-stream')) {
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'presentation.pptx';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          setMessages(prev => prev.map((m, i) =>
+            i === prev.length - 1 && m.pending
+              ? { role: 'assistant', content: 'Your presentation has been generated and downloaded.', time: time() }
+              : m
+          ));
+          return;
+        }
+      }
+
       const data = await response.json();
-      const reply = data?.reply || 'I had trouble connecting. Please try again.';
+      let reply = data?.reply || 'I had trouble connecting. Please try again.';
+
+      if (reply.includes('[PRESENTATION]')) {
+        const presResponse = await fetch('/api/generate-presentation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg, context: reply, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
+        });
+        if (presResponse.ok) {
+          const contentType = presResponse.headers.get('content-type') || '';
+          if (contentType.includes('application/vnd') || contentType.includes('octet-stream')) {
+            const blob = await presResponse.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'presentation.pptx';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            reply = reply.replace('[PRESENTATION]', '').trim() + '\n\nYour presentation has been downloaded.';
+          }
+        }
+      }
+
       setMessages(prev => prev.map((m, i) =>
         i === prev.length - 1 && m.pending
           ? { role: 'assistant', content: reply, time: time() }
