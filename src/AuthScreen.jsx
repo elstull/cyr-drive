@@ -19,10 +19,16 @@ export default function AuthScreen({ onLogin, instanceName = 'CyRisk' }) {
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
 
   // Check for existing session on mount
   useEffect(() => {
     checkExistingSession();
+  }, []);
+
+  useEffect(() => {
+    supabase.from('instance_config').select('value').eq('key', 'app_version').single()
+      .then(({ data }) => { if (data?.value) setAppVersion(data.value); });
   }, []);
 
   async function checkExistingSession() {
@@ -183,13 +189,9 @@ export default function AuthScreen({ onLogin, instanceName = 'CyRisk' }) {
               <button
                 type="button"
                 tabIndex={-1}
-                aria-label="Hold to reveal password"
-                title="Hold to reveal password"
-                onMouseDown={() => setShowPassword(true)}
-                onMouseUp={() => setShowPassword(false)}
-                onMouseLeave={() => setShowPassword(false)}
-                onTouchStart={() => setShowPassword(true)}
-                onTouchEnd={() => setShowPassword(false)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                onClick={() => setShowPassword(prev => !prev)}
                 style={{
                   position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
                   background: 'none', border: 'none', cursor: 'pointer', padding: 4,
@@ -236,6 +238,14 @@ export default function AuthScreen({ onLogin, instanceName = 'CyRisk' }) {
 
         <p style={styles.footer}>{instanceName}</p>
       </div>
+      {appVersion && (
+        <div style={{
+          position: 'fixed', bottom: 12, right: 16,
+          color: '#445566', fontSize: 10, fontFamily: 'inherit',
+        }}>
+          v{appVersion}
+        </div>
+      )}
     </div>
   );
 }
