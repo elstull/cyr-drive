@@ -25,7 +25,7 @@ import VersionStamp from './components/VersionStamp';
 // BOTTOM NAV — bigger icons, bigger text, always visible
 // ═══════════════════════════════════════════════════════════════════════════
 
-function BottomNav({ role, activeTab, onNav, onSignOut, children }) {
+function BottomNav({ role, activeTab, onNav, onSignOut }) {
   const tabs = [
     { id: 'action', icon: '\uD83C\uDFE0', label: 'Home' },
     { id: 'workspace', icon: '\uD83D\uDCAC', label: 'Chat' },
@@ -52,6 +52,7 @@ function BottomNav({ role, activeTab, onNav, onSignOut, children }) {
       {tabs.map(tab => {
         const active = tab.id === activeTab;
         const isExit = tab.id === '_signout';
+        if (tab.id === 'workspace' && active) return null;
         return (
           <button key={tab.id}
             onClick={() => isExit ? onSignOut() : onNav(tab.id)}
@@ -75,7 +76,12 @@ function BottomNav({ role, activeTab, onNav, onSignOut, children }) {
           </button>
         );
       })}
-      {children}
+      <div style={{
+        position: 'absolute', right: 12, bottom: 8,
+        backgroundColor: 'transparent',
+      }}>
+        <VersionStamp variant="inline" />
+      </div>
     </nav>
   );
 }
@@ -352,11 +358,7 @@ case 'help':
       )}
       {renderView()}
       <FloatingChat supabase={supabase} currentUser={currentUser} users={users} activeView={appView} />
-      <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut}>
-        <div style={{ marginLeft: 'auto', backgroundColor: 'transparent' }}>
-          <VersionStamp variant="inline" />
-        </div>
-      </BottomNav>
+      <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut} />
       <RealtimeToast events={realtimeEvents} />
     </div>
   );
