@@ -12,23 +12,17 @@ import { supabase } from './supabase.js';
 //     <AuthScreen onLogin={(fsmUser) => setCurrentUser(fsmUser)} />
 // ============================================================
 
-export default function AuthScreen({ onLogin, instanceName = 'CyRisk' }) {
+export default function AuthScreen({ onLogin, instanceName = 'FSM Drive' }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
-  const [appVersion, setAppVersion] = useState('');
 
   // Check for existing session on mount
   useEffect(() => {
     checkExistingSession();
-  }, []);
-
-  useEffect(() => {
-    supabase.from('instance_config').select('value').eq('key', 'app_version').single()
-      .then(({ data }) => { if (data?.value) setAppVersion(data.value); });
   }, []);
 
   async function checkExistingSession() {
@@ -238,14 +232,6 @@ export default function AuthScreen({ onLogin, instanceName = 'CyRisk' }) {
 
         <p style={styles.footer}>{instanceName}</p>
       </div>
-      {appVersion && (
-        <div style={{
-          position: 'fixed', bottom: 12, right: 16,
-          color: '#445566', fontSize: 10, fontFamily: 'inherit',
-        }}>
-          v{appVersion}
-        </div>
-      )}
     </div>
   );
 }

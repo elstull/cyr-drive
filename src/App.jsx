@@ -18,6 +18,7 @@ import DocumentManager from './DocumentManager.jsx';
 import AuthScreen, { signOut } from './AuthScreen.jsx';
 import useRealtimeSync from './hooks/useRealtimeSync';
 import RealtimeToast from './components/RealtimeToast';
+import VersionStamp from './components/VersionStamp';
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -100,6 +101,8 @@ export default function App() {
   const [showScan, setShowScan] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
   const [instanceName, setInstanceName] = useState('FSM Drive');
+  const [instanceCode, setInstanceCode] = useState('');
+  const [customerName, setCustomerName] = useState('');
   const channelRefs = useRef([]);
   const [realtimeEvents, setRealtimeEvents] = useState([]);
   const handleDataChange = useCallback((event) => {
@@ -114,9 +117,20 @@ export default function App() {
     : {};
 
   useEffect(() => {
-    supabase.from('instance_config').select('value').eq('key', 'instance_name').single()
-      .then(({ data }) => { if (data?.value) setInstanceName(data.value); });
+    supabase.from('instance_config').select('key, value').then(({ data }) => {
+      if (!data) return;
+      const cfg = Object.fromEntries(data.map(c => [c.key, c.value]));
+      if (cfg.instance_name) setInstanceName(cfg.instance_name);
+      if (cfg.instance_code) setInstanceCode(cfg.instance_code);
+      if (cfg.customer_name) setCustomerName(cfg.customer_name);
+    });
   }, []);
+
+  useEffect(() => {
+    const code = instanceCode || 'FSM';
+    const org = customerName || instanceName;
+    document.title = `${code} Drive \u2014 ${org}`;
+  }, [instanceCode, customerName, instanceName]);
 
   // Mark connected once AuthScreen resolves a user
   useEffect(() => {
@@ -258,10 +272,13 @@ export default function App() {
 
   if (!currentUser || !connected) {
     return (
-      <AuthScreen
-        onLogin={(user) => { setCurrentUser(user.userId); setUserName(user.userName); }}
-        instanceName={instanceName}
-      />
+      <>
+        <AuthScreen
+          onLogin={(user) => { setCurrentUser(user.userId); setUserName(user.userName); }}
+          instanceName={instanceName}
+        />
+        <VersionStamp />
+      </>
     );
   }
 
@@ -336,6 +353,7 @@ case 'help':
       <FloatingChat supabase={supabase} currentUser={currentUser} users={users} activeView={appView} />
       <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut} />
       <RealtimeToast events={realtimeEvents} />
+      <VersionStamp />
     </div>
   );
 }
