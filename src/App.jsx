@@ -52,7 +52,7 @@ function BottomNav({ role, activeTab, onNav, onSignOut }) {
       {tabs.map(tab => {
         const active = tab.id === activeTab;
         const isExit = tab.id === '_signout';
-        if (tab.id === 'workspace' && active) return null;
+        if (tab.id === 'workspace' && (activeTab === 'workspace' || activeTab === 'editor')) return null;
         return (
           <button key={tab.id}
             onClick={() => isExit ? onSignOut() : onNav(tab.id)}
