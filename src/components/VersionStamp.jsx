@@ -1,5 +1,23 @@
-export default function VersionStamp() {
+export default function VersionStamp({ variant = 'floating' }) {
   const version = __APP_VERSION__;
+
+  if (variant === 'inline') {
+    return (
+      <div
+        style={{
+          fontSize: '12px',
+          color: '#6A9BCC',
+          pointerEvents: 'none',
+          userSelect: 'none',
+          padding: '0 12px',
+          alignSelf: 'center',
+        }}
+      >
+        v{version}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{

@@ -25,7 +25,7 @@ import VersionStamp from './components/VersionStamp';
 // BOTTOM NAV — bigger icons, bigger text, always visible
 // ═══════════════════════════════════════════════════════════════════════════
 
-function BottomNav({ role, activeTab, onNav, onSignOut }) {
+function BottomNav({ role, activeTab, onNav, onSignOut, children }) {
   const tabs = [
     { id: 'action', icon: '\uD83C\uDFE0', label: 'Home' },
     { id: 'workspace', icon: '\uD83D\uDCAC', label: 'Chat' },
@@ -75,6 +75,7 @@ function BottomNav({ role, activeTab, onNav, onSignOut }) {
           </button>
         );
       })}
+      {children}
     </nav>
   );
 }
@@ -351,9 +352,12 @@ case 'help':
       )}
       {renderView()}
       <FloatingChat supabase={supabase} currentUser={currentUser} users={users} activeView={appView} />
-      <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut} />
+      <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut}>
+        <div style={{ marginLeft: 'auto' }}>
+          <VersionStamp variant="inline" />
+        </div>
+      </BottomNav>
       <RealtimeToast events={realtimeEvents} />
-      <VersionStamp />
     </div>
   );
 }
