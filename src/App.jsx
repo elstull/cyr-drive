@@ -353,7 +353,7 @@ case 'help':
       {renderView()}
       <FloatingChat supabase={supabase} currentUser={currentUser} users={users} activeView={appView} />
       <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut}>
-        <div style={{ marginLeft: 'auto' }}>
+        <div style={{ marginLeft: 'auto', backgroundColor: 'transparent' }}>
           <VersionStamp variant="inline" />
         </div>
       </BottomNav>

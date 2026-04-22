@@ -11,6 +11,7 @@ export default function VersionStamp({ variant = 'floating' }) {
           userSelect: 'none',
           padding: '0 12px',
           alignSelf: 'center',
+          backgroundColor: 'transparent',
         }}
       >
         v{version}
