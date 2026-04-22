@@ -3,12 +3,14 @@ export default function VersionStamp() {
   return (
     <div
       style={{
+        position: 'fixed',
+        bottom: '8px',
+        right: '12px',
         fontSize: '11px',
         color: 'rgba(128, 128, 128, 0.5)',
-        textAlign: 'right',
-        padding: '8px 12px',
         pointerEvents: 'none',
         userSelect: 'none',
+        zIndex: 50,
       }}
     >
       v{version}
