@@ -1,5 +1,6 @@
 export default function VersionStamp({ variant = 'floating' }) {
   const version = __APP_VERSION__;
+  const deploy = __DEPLOY_HASH__;
 
   if (variant === 'inline') {
     return (
@@ -14,7 +15,7 @@ export default function VersionStamp({ variant = 'floating' }) {
           backgroundColor: 'transparent',
         }}
       >
-        v{version}
+        v{version} &middot; {deploy}
       </div>
     );
   }
