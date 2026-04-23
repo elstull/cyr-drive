@@ -355,10 +355,13 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   // classes are not being applied at runtime (the rest of the app uses
   // inline styles). Without these the floating window has no visible edge.
   const windowChrome = {
-    background: "white",
-    border: "1px solid #666",
+    background: bgDark ? "#1a1a2e" : "white",
+    border: bgDark ? "1px solid #444" : "1px solid #666",
     borderRadius: 8,
     boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
   };
   const windowStyle = maximized
     ? {
@@ -444,8 +447,26 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         </div>
       </div>
       {detached ? (
-        <div className="flex h-32 items-center justify-center text-sm italic text-gray-500 dark:text-gray-400">
-          Viewing in detached window &mdash; press Esc or click Return to recall
+        <div style={{
+          height: 120,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#f0f4f8',
+          border: '2px dashed #b0bec5',
+          borderRadius: 8,
+          color: '#546e7a',
+          fontSize: 14,
+          fontStyle: 'italic',
+          padding: 16,
+          gap: 6,
+        }}>
+          <div style={{ fontSize: 20 }}>{'↗'}</div>
+          <div>This graphic has been detached</div>
+          <div style={{ fontSize: 12, opacity: 0.7 }}>
+            Look for the floating window. Press Esc or click Return to bring it back.
+          </div>
         </div>
       ) : (
         <div ref={contentInnerRef} className="overflow-auto p-3">
@@ -468,10 +489,20 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       <div
         onMouseDown={startWindowDrag}
         onDoubleClick={() => setMaximized((m) => !m)}
-        className={`flex items-center justify-between border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800 transition-opacity ${
+        className={`transition-opacity ${
           chromeVisible ? "opacity-100" : "opacity-30 hover:opacity-100"
         }`}
-        style={{ cursor: maximized ? "default" : "move" }}
+        style={{
+          cursor: maximized ? "default" : "move",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "6px 12px",
+          background: bgDark ? "#2a2a3e" : "#f5f5f5",
+          color: bgDark ? "#e0e0e0" : "#333333",
+          borderBottom: bgDark ? "1px solid #3a3a4e" : "1px solid #e5e7eb",
+          flexShrink: 0,
+        }}
       >
         <div className="flex items-center gap-2">
           {!maximized && <Move size={14} className="text-gray-400" />}
@@ -549,9 +580,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       {/* Content area */}
       <div
         ref={contentAreaRef}
-        className={`relative flex-1 overflow-hidden ${
-          bgDark ? "bg-gray-900" : "bg-white"
-        }`}
         onWheel={handleWheel}
         onMouseDown={(e) => {
           if (e.shiftKey) {
@@ -560,7 +588,13 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
             startContentDrag(e);
           }
         }}
-        style={{ cursor: is3D ? "default" : marquee ? "crosshair" : "grab" }}
+        style={{
+          cursor: is3D ? "default" : marquee ? "crosshair" : "grab",
+          flex: 1,
+          position: "relative",
+          overflow: "hidden",
+          background: bgDark ? "#1a1a2e" : "#ffffff",
+        }}
       >
         <div
           ref={contentInnerRef}
@@ -614,16 +648,18 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
           chromeVisible ? "opacity-100" : "opacity-30 hover:opacity-100"
         }`}
         style={{
-          borderTop: "1px solid #e5e7eb",
+          borderTop: bgDark ? "1px solid #3a3a4e" : "1px solid #e5e7eb",
+          background: bgDark ? "#2a2a3e" : "transparent",
           padding: "4px 12px",
           fontSize: 11,
-          color: "#6b7280",
+          color: bgDark ? "#e0e0e0" : "#6b7280",
           display: "flex",
           flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 8,
           whiteSpace: "normal",
+          flexShrink: 0,
         }}
       >
         <span
@@ -669,7 +705,21 @@ function ToolbarButton({ onClick, title, children }) {
       type="button"
       onClick={onClick}
       title={title}
-      className="flex h-6 w-6 items-center justify-center rounded text-gray-600 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
+      style={{
+        width: 20,
+        height: 20,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        border: 'none',
+        borderRadius: 4,
+        color: '#333333',
+        cursor: 'pointer',
+        padding: 0,
+      }}
+      onMouseEnter={(e) => e.currentTarget.style.background = '#e0e0e0'}
+      onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
     >
       {children}
     </button>
