@@ -351,6 +351,15 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
 
   // ---------------- Detached window geometry ----------------
   // When maximized, snap to viewport minus a small margin.
+  // Chrome is set as explicit inline styles because this file's Tailwind
+  // classes are not being applied at runtime (the rest of the app uses
+  // inline styles). Without these the floating window has no visible edge.
+  const windowChrome = {
+    background: "white",
+    border: "1px solid #666",
+    borderRadius: 8,
+    boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+  };
   const windowStyle = maximized
     ? {
         position: "fixed",
@@ -359,6 +368,7 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         width: "calc(100vw - 32px)",
         height: "calc(100vh - 32px)",
         zIndex: 1000,
+        ...windowChrome,
       }
     : {
         position: "fixed",
@@ -367,6 +377,7 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         width: size.width,
         height: size.height,
         zIndex: 1000,
+        ...windowChrome,
       };
 
   // ---------------- Inline block ----------------
@@ -397,13 +408,31 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
             <button
               type="button"
               onClick={() => {
-                setDetached(true);
-                // Default: open large enough to be useful
-                setSize({
-                  width: Math.min(1200, window.innerWidth - 100),
-                  height: Math.min(800, window.innerHeight - 100),
-                });
+                // Measure the inline graphic's natural rendered size so
+                // the detached window opens just large enough to contain
+                // it, clamped to sensible min/max. Must happen before
+                // setDetached(true) because the inline node is what holds
+                // the currently-rendered graphic.
+                let naturalW = 600;
+                let naturalH = 400;
+                const inlineEl = contentInnerRef.current;
+                if (inlineEl) {
+                  const svgEl = inlineEl.querySelector("svg");
+                  const target =
+                    svgEl || inlineEl.firstElementChild || inlineEl;
+                  const rect = target.getBoundingClientRect();
+                  if (rect.width > 0 && rect.height > 0) {
+                    naturalW = rect.width;
+                    naturalH = rect.height;
+                  }
+                }
+                const maxW = window.innerWidth * 0.8;
+                const maxH = window.innerHeight * 0.8;
+                const w = Math.max(400, Math.min(maxW, naturalW + 40));
+                const h = Math.max(320, Math.min(maxH, naturalH + 80));
+                setSize({ width: w, height: h });
                 setPos({ x: 80, y: 60 });
+                setDetached(true);
               }}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
               title="Open in detachable viewer"
@@ -578,16 +607,34 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         )}
       </div>
 
-      {/* Status bar */}
+      {/* Status bar \u2014 short label + tooltip; wraps rather than forcing
+          the window wider than its contents need. */}
       <div
-        className={`flex items-center justify-between border-t border-gray-200 px-3 py-1 text-xs text-gray-500 transition-opacity dark:border-gray-700 dark:text-gray-400 ${
+        className={`transition-opacity ${
           chromeVisible ? "opacity-100" : "opacity-30 hover:opacity-100"
         }`}
+        style={{
+          borderTop: "1px solid #e5e7eb",
+          padding: "4px 12px",
+          fontSize: 11,
+          color: "#6b7280",
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          whiteSpace: "normal",
+        }}
       >
-        <span>
-          {is3D
-            ? "3D canvas \u2014 use the diagram's own controls to rotate, pan, and zoom"
-            : "Drag to pan \u2022 Shift+drag to zoom to area \u2022 Ctrl+wheel to zoom \u2022 0 fits \u2022 1 actual size"}
+        <span
+          title={
+            is3D
+              ? "3D canvas \u2014 use the diagram's own controls to rotate, pan, and zoom"
+              : "Drag to pan \u2022 Shift+drag to zoom to area \u2022 Ctrl+wheel to zoom \u2022 0 fits \u2022 1 actual size"
+          }
+          style={{ cursor: "help" }}
+        >
+          {is3D ? "3D canvas" : "Drag to pan"}
         </span>
         {!is3D && <span>{Math.round(zoom * 100)}%</span>}
       </div>

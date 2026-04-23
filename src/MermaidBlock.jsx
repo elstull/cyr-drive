@@ -125,7 +125,6 @@ class DiagramErrorBoundary extends Component {
 function MermaidBlockInner({ code }) {
   const [svg, setSvg] = useState('');
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     if (!code) return;
@@ -170,64 +169,15 @@ function MermaidBlockInner({ code }) {
     );
   }
 
-  return (
-    <div style={{
-      background: '#0f1419',
-      border: '1px solid #4a90d922',
-      borderRadius: 8,
-      margin: '12px 0',
-      overflow: 'hidden',
-    }}>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '6px 12px',
-          background: '#1e293b',
-          borderBottom: expanded ? '1px solid #4a90d922' : 'none',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <span style={{ fontSize: 11, color: '#4a90d9', fontWeight: 600 }}>
-          📊 Diagram
-        </span>
-        <span style={{ fontSize: 10, color: '#6b7280' }}>
-          {expanded ? '▼' : '▶'}
-        </span>
+  if (!svg) {
+    return (
+      <div style={{ padding: 16, color: '#6b7280', fontSize: 12, textAlign: 'center' }}>
+        Rendering diagram...
       </div>
+    );
+  }
 
-      {expanded && svg && (
-        <div
-          style={{
-            padding: '16px',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: 100,
-            overflow: 'auto',
-          }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-      )}
-
-      {expanded && !svg && (
-        <div style={{
-          padding: '16px',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: 100,
-        }}>
-          <div style={{ color: '#6b7280', fontSize: 12 }}>
-            Rendering diagram...
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export default function MermaidBlock({ code }) {
