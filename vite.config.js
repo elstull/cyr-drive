@@ -4,12 +4,9 @@ import { readFileSync } from 'fs';
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
 
-const vercelUrl = process.env.VERCEL_URL || '';
 const deployHash = (() => {
-  const match = vercelUrl.match(/-([a-z0-9]+)-[^-]+-[^.]+\.vercel\.app$/);
-  if (match) return match[1];
-  const dplId = process.env.VERCEL_DEPLOYMENT_ID || '';
-  if (dplId) return dplId.replace(/^dpl_/, '').slice(0, 8);
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA;
+  if (sha) return sha.slice(0, 7);
   return 'local';
 })();
 
