@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { CodeBlockRenderer } from './MermaidBlock';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FLOATING CHAT — available on every screen (except Chat tab)
@@ -249,7 +252,13 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
                 border: '1px solid ' + (m.role === 'user' ? '#4a90d944' : '#1e293b'),
                 color: '#e2e8f0', fontSize: 12, lineHeight: 1.5,
               }}>
-                {m.content}
+                {m.role === 'assistant' ? (
+                  <div className="chat-md">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlockRenderer }}>{m.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  m.content
+                )}
               </div>
             ))}
             {loading && <div style={{ color: '#4a90d9', fontSize: 11 }}>Thinking...</div>}
@@ -312,6 +321,26 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
           <div style={{ width: 6, height: 6, borderRadius: 2, background: DIM, opacity: 0.35 }} />
         </div>
       ))}
+
+      {/* TODO: hoist .chat-md styles to a shared stylesheet — currently duplicated from ChatView.jsx */}
+      <style>{`
+        .chat-md p { margin: 0 0 8px 0; }
+        .chat-md p:last-child { margin-bottom: 0; }
+        .chat-md h1 { font-size: 16px; font-weight: 700; margin: 8px 0 6px; color: #fff; }
+        .chat-md h2 { font-size: 14px; font-weight: 700; margin: 8px 0 6px; color: #fff; }
+        .chat-md h3 { font-size: 13px; font-weight: 700; margin: 6px 0 4px; color: #fff; }
+        .chat-md strong { color: #fff; font-weight: 700; }
+        .chat-md ul, .chat-md ol { margin: 4px 0 8px 0; padding-left: 20px; }
+        .chat-md li { margin: 2px 0; }
+        .chat-md code { background: #1e293b; color: #f0f0f0; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace; }
+        .chat-md pre { background: #050810; border: 1px solid #2a3a4e; border-radius: 6px; padding: 10px; overflow-x: auto; margin: 6px 0; }
+        .chat-md pre code { background: transparent; padding: 0; font-size: 11px; color: #e2e8f0; }
+        .chat-md table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 12px; }
+        .chat-md th, .chat-md td { border: 1px solid #3a4a5e; padding: 6px 10px; text-align: left; }
+        .chat-md th { background: #1a2332; font-weight: 700; color: #fff; }
+        .chat-md a { color: #4a90d9; text-decoration: underline; }
+        .chat-md blockquote { border-left: 3px solid #4a90d9; padding-left: 10px; margin: 6px 0; color: #c8d4e0; }
+      `}</style>
     </div>
   );
 }

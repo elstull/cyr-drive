@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, Component } from 'react';
 import mermaid from 'mermaid';
+import GraphicViewer from './components/GraphicViewer.jsx';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MERMAID DIAGRAM RENDERER — v2.1
@@ -232,7 +233,9 @@ function MermaidBlockInner({ code }) {
 export default function MermaidBlock({ code }) {
   return (
     <DiagramErrorBoundary>
-      <MermaidBlockInner code={code} />
+      <GraphicViewer>
+        <MermaidBlockInner code={code} />
+      </GraphicViewer>
     </DiagramErrorBoundary>
   );
 }
@@ -248,7 +251,9 @@ export function CodeBlockRenderer({ node, inline, className, children, ...props 
     const code = String(children).replace(/\n$/, '');
     return (
       <DiagramErrorBoundary>
-        <MermaidBlockInner code={code} />
+        <GraphicViewer>
+          <MermaidBlockInner code={code} />
+        </GraphicViewer>
       </DiagramErrorBoundary>
     );
   }
