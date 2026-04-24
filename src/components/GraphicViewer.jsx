@@ -437,19 +437,41 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
                 if (inlineEl) {
                   const svgEl = inlineEl.querySelector("svg");
                   if (svgEl) {
-                    const rect = svgEl.getBoundingClientRect();
-                    let w = rect.width;
-                    let h = rect.height;
-                    const vbAttr = svgEl.getAttribute("viewBox");
-                    if (vbAttr) {
-                      const parts = vbAttr.trim().split(/[\s,]+/).map(Number);
-                      if (
-                        parts.length === 4 &&
-                        parts[2] > 0 &&
-                        parts[3] > 0
-                      ) {
-                        w = Math.min(w || Infinity, parts[2]);
-                        h = Math.min(h || Infinity, parts[3]);
+                    let w = 0;
+                    let h = 0;
+                    // Prefer getBBox — it returns the tight bounds of
+                    // rendered ink, ignoring viewBox padding. Mermaid's
+                    // viewBox reserves padding around the diagram, so
+                    // both getBoundingClientRect and viewBox dims
+                    // overshoot the actual content.
+                    try {
+                      const bbox = svgEl.getBBox();
+                      if (bbox.width > 0 && bbox.height > 0) {
+                        w = bbox.width;
+                        h = bbox.height;
+                      }
+                    } catch {
+                      // getBBox throws on detached/unrendered SVG — fall
+                      // through to the bounding-rect path below.
+                    }
+                    if (!w || !h) {
+                      const rect = svgEl.getBoundingClientRect();
+                      w = rect.width;
+                      h = rect.height;
+                      const vbAttr = svgEl.getAttribute("viewBox");
+                      if (vbAttr) {
+                        const parts = vbAttr
+                          .trim()
+                          .split(/[\s,]+/)
+                          .map(Number);
+                        if (
+                          parts.length === 4 &&
+                          parts[2] > 0 &&
+                          parts[3] > 0
+                        ) {
+                          w = Math.min(w || Infinity, parts[2]);
+                          h = Math.min(h || Infinity, parts[3]);
+                        }
                       }
                     }
                     if (w > 0 && h > 0) {
