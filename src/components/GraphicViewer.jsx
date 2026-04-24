@@ -225,8 +225,9 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   );
 
   // ---------------- Resize grip ----------------
+  // edge: 'corner' (width+height), 'bottom' (height only), 'right' (width only)
   const startResize = useCallback(
-    (e) => {
+    (e, edge = 'corner') => {
       if (maximized) return;
       e.preventDefault();
       e.stopPropagation();
@@ -234,9 +235,17 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       const startY = e.clientY;
       const startSize = { ...size };
       const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        const maxW = window.innerWidth;
+        const maxH = window.innerHeight;
         setSize({
-          width: Math.max(360, startSize.width + (ev.clientX - startX)),
-          height: Math.max(280, startSize.height + (ev.clientY - startY)),
+          width: edge === 'bottom'
+            ? startSize.width
+            : Math.max(300, Math.min(maxW, startSize.width + dx)),
+          height: edge === 'right'
+            ? startSize.height
+            : Math.max(240, Math.min(maxH, startSize.height + dy)),
         });
       };
       const onUp = () => {
@@ -416,17 +425,44 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
                 // it, clamped to sensible min/max. Must happen before
                 // setDetached(true) because the inline node is what holds
                 // the currently-rendered graphic.
+                //
+                // For SVG content (Mermaid etc.), take the MIN of the
+                // bounding rect and the viewBox-derived size. Mermaid's
+                // rendered SVG often has a bounding rect larger than its
+                // viewBox (layout slack), which produced an oversized
+                // window with a large blank area above the diagram.
                 let naturalW = 600;
                 let naturalH = 400;
                 const inlineEl = contentInnerRef.current;
                 if (inlineEl) {
                   const svgEl = inlineEl.querySelector("svg");
-                  const target =
-                    svgEl || inlineEl.firstElementChild || inlineEl;
-                  const rect = target.getBoundingClientRect();
-                  if (rect.width > 0 && rect.height > 0) {
-                    naturalW = rect.width;
-                    naturalH = rect.height;
+                  if (svgEl) {
+                    const rect = svgEl.getBoundingClientRect();
+                    let w = rect.width;
+                    let h = rect.height;
+                    const vbAttr = svgEl.getAttribute("viewBox");
+                    if (vbAttr) {
+                      const parts = vbAttr.trim().split(/[\s,]+/).map(Number);
+                      if (
+                        parts.length === 4 &&
+                        parts[2] > 0 &&
+                        parts[3] > 0
+                      ) {
+                        w = Math.min(w || Infinity, parts[2]);
+                        h = Math.min(h || Infinity, parts[3]);
+                      }
+                    }
+                    if (w > 0 && h > 0) {
+                      naturalW = w;
+                      naturalH = h;
+                    }
+                  } else {
+                    const target = inlineEl.firstElementChild || inlineEl;
+                    const rect = target.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                      naturalW = rect.width;
+                      naturalH = rect.height;
+                    }
                   }
                 }
                 const maxW = window.innerWidth * 0.8;
@@ -675,18 +711,57 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         {!is3D && <span>{Math.round(zoom * 100)}%</span>}
       </div>
 
-      {/* Resize grip */}
+      {/* Resize handles — three edges. Positioned inline because the
+          Tailwind layout classes used elsewhere in this file are not
+          applied at runtime (no Tailwind config in project). */}
       {!maximized && (
-        <div
-          onMouseDown={startResize}
-          className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize"
-          style={{
-            background:
-              "linear-gradient(135deg, transparent 50%, rgba(100,100,100,0.4) 50%)",
-            zIndex: 10,
-          }}
-          title="Drag to resize"
-        />
+        <>
+          {/* Bottom edge — height only */}
+          <div
+            onMouseDown={(e) => startResize(e, 'bottom')}
+            style={{
+              position: 'absolute',
+              left: 12,
+              right: 12,
+              bottom: 0,
+              height: 4,
+              cursor: 'ns-resize',
+              zIndex: 15,
+            }}
+            title="Drag to resize height"
+          />
+          {/* Right edge — width only */}
+          <div
+            onMouseDown={(e) => startResize(e, 'right')}
+            style={{
+              position: 'absolute',
+              top: 12,
+              bottom: 12,
+              right: 0,
+              width: 4,
+              cursor: 'ew-resize',
+              zIndex: 15,
+            }}
+            title="Drag to resize width"
+          />
+          {/* Bottom-right corner — width + height, with visible diagonal
+              stripe indicator so users can see the grab target. */}
+          <div
+            onMouseDown={(e) => startResize(e, 'corner')}
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              right: 0,
+              width: 12,
+              height: 12,
+              cursor: 'nwse-resize',
+              background:
+                'linear-gradient(135deg, transparent 0%, transparent 30%, #888 30%, #888 45%, transparent 45%, transparent 60%, #888 60%, #888 75%, transparent 75%)',
+              zIndex: 20,
+            }}
+            title="Drag to resize"
+          />
+        </>
       )}
     </div>
   ) : null;
