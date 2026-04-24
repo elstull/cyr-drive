@@ -136,9 +136,22 @@ export default function ChatView({ currentUser, users, supabase }) {
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     const wantsPresentation = /\b(create|generate|make|build)\b.*\bpresentation\b/i.test(msg);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setMessages(prev => prev.map((m, i) =>
+          i === prev.length - 1 && m.pending
+            ? { role: 'assistant', content: 'Session expired, please sign in again.', time: time() }
+            : m
+        ));
+        return;
+      }
       const response = await fetch(wantsPresentation ? '/api/generate-presentation' : '/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({ message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
       });
 
@@ -169,7 +182,10 @@ export default function ChatView({ currentUser, users, supabase }) {
       if (reply.includes('[PRESENTATION]')) {
         const presResponse = await fetch('/api/generate-presentation', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
           body: JSON.stringify({ message: msg, context: reply, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
         });
         if (presResponse.ok) {

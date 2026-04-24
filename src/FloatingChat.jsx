@@ -75,9 +75,21 @@ export default function FloatingChat({ supabase, currentUser, users, activeView 
 
     try {
       const history = messages.slice(-12).map(m => ({ role: m.role, content: m.content }));
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Session expired, please sign in again.',
+        }]);
+        return;
+      }
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
         body: JSON.stringify({
           message: msg,
           history,

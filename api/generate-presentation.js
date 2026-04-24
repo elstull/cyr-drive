@@ -7,6 +7,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import PptxGenJS from 'pptxgenjs';
+import { verifyAuth } from './_auth.js';
 
 const MODEL = 'claude-opus-4-7';
 
@@ -26,7 +27,7 @@ const BRAND = {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -41,6 +42,9 @@ export default async function handler(req, res) {
       return res.status(200).json({ error: "Services not configured." });
     }
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const auth = await verifyAuth(req, res, supabase);
+    if (!auth) return;
 
     // ── Gather operational context (same as chat.js) ──
     let instanceName = "FSM Drive", customerName = "Customer", instanceCode = "FSM";
