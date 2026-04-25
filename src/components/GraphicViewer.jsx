@@ -420,79 +420,9 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
             <button
               type="button"
               onClick={() => {
-                // Measure the inline graphic's natural rendered size so
-                // the detached window opens just large enough to contain
-                // it, clamped to sensible min/max. Must happen before
-                // setDetached(true) because the inline node is what holds
-                // the currently-rendered graphic.
-                //
-                // For SVG content (Mermaid etc.), take the MIN of the
-                // bounding rect and the viewBox-derived size. Mermaid's
-                // rendered SVG often has a bounding rect larger than its
-                // viewBox (layout slack), which produced an oversized
-                // window with a large blank area above the diagram.
-                let naturalW = 600;
-                let naturalH = 400;
-                const inlineEl = contentInnerRef.current;
-                if (inlineEl) {
-                  const svgEl = inlineEl.querySelector("svg");
-                  if (svgEl) {
-                    let w = 0;
-                    let h = 0;
-                    // Prefer getBBox — it returns the tight bounds of
-                    // rendered ink, ignoring viewBox padding. Mermaid's
-                    // viewBox reserves padding around the diagram, so
-                    // both getBoundingClientRect and viewBox dims
-                    // overshoot the actual content.
-                    try {
-                      const bbox = svgEl.getBBox();
-                      if (bbox.width > 0 && bbox.height > 0) {
-                        w = bbox.width;
-                        h = bbox.height;
-                      }
-                    } catch {
-                      // getBBox throws on detached/unrendered SVG — fall
-                      // through to the bounding-rect path below.
-                    }
-                    if (!w || !h) {
-                      const rect = svgEl.getBoundingClientRect();
-                      w = rect.width;
-                      h = rect.height;
-                      const vbAttr = svgEl.getAttribute("viewBox");
-                      if (vbAttr) {
-                        const parts = vbAttr
-                          .trim()
-                          .split(/[\s,]+/)
-                          .map(Number);
-                        if (
-                          parts.length === 4 &&
-                          parts[2] > 0 &&
-                          parts[3] > 0
-                        ) {
-                          w = Math.min(w || Infinity, parts[2]);
-                          h = Math.min(h || Infinity, parts[3]);
-                        }
-                      }
-                    }
-                    if (w > 0 && h > 0) {
-                      naturalW = w;
-                      naturalH = h;
-                    }
-                  } else {
-                    const target = inlineEl.firstElementChild || inlineEl;
-                    const rect = target.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                      naturalW = rect.width;
-                      naturalH = rect.height;
-                    }
-                  }
-                }
-                const maxW = window.innerWidth * 0.8;
-                const maxH = window.innerHeight * 0.8;
-                const w = Math.max(400, Math.min(maxW, naturalW + 40));
-                const h = Math.max(320, Math.min(maxH, naturalH + 80));
-                setSize({ width: w, height: h });
-                setPos({ x: 80, y: 60 });
+                const defaultW = Math.min(900, window.innerWidth * 0.8);
+                const defaultH = Math.min(600, window.innerHeight * 0.8);
+                setSize({ width: defaultW, height: defaultH });
                 setDetached(true);
               }}
               className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
@@ -539,7 +469,7 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
     <div
       ref={windowRef}
       style={windowStyle}
-      className="flex flex-col overflow-hidden rounded-lg border border-gray-300 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-900"
+      className="gv-detached flex flex-col overflow-hidden rounded-lg border border-gray-300 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-900"
       tabIndex={0}
       onMouseMove={bumpChromeVisibility}
     >
@@ -656,30 +586,17 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       >
         <div
           ref={contentInnerRef}
+          className="gv-content-inner"
           style={{
+            position: "absolute",
+            inset: 0,
             transform: is3D
               ? undefined
               : `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: "center center",
-            position: "absolute",
-            left: "50%",
-            top: "50%",
-            marginLeft: is3D ? 0 : 0,
-            display: "inline-block",
-            // For 3D we let the canvas fill the area.
-            width: is3D ? "100%" : "auto",
-            height: is3D ? "100%" : "auto",
           }}
         >
-          <div
-            style={
-              is3D
-                ? { width: "100%", height: "100%" }
-                : { transform: "translate(-50%, -50%)" }
-            }
-          >
-            {children}
-          </div>
+          {children}
         </div>
 
         {/* Marquee rectangle */}
@@ -790,6 +707,14 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
 
   return (
     <>
+      <style>{`
+        .gv-detached .gv-content-inner svg {
+          width: 100%;
+          height: 100%;
+          max-width: 100%;
+          max-height: 100%;
+        }
+      `}</style>
       {InlineBlock}
       {DetachedWindow}
     </>
