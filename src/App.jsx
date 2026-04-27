@@ -19,6 +19,7 @@ import AuthScreen, { signOut } from './AuthScreen.jsx';
 import useRealtimeSync from './hooks/useRealtimeSync';
 import RealtimeToast from './components/RealtimeToast';
 import VersionStamp from './components/VersionStamp';
+import VersionChecker from './components/VersionChecker';
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -359,6 +360,7 @@ case 'help':
       {renderView()}
       <FloatingChat supabase={supabase} currentUser={currentUser} users={users} activeView={appView} />
       <BottomNav role={userRole} activeTab={appView} onNav={navigateTo} onSignOut={signOut} />
+      <VersionChecker />
       <RealtimeToast events={realtimeEvents} />
     </div>
   );
