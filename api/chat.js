@@ -3,7 +3,6 @@
 // RBAC: owner(4) > admin(3) > member(2) > viewer(1)
 
 import { createClient } from '@supabase/supabase-js';
-import { verifyAuth } from './_auth.js';
 
 const INPUT_COST_PER_TOKEN = 5.0 / 1_000_000;
 const OUTPUT_COST_PER_TOKEN = 25.0 / 1_000_000;
@@ -15,7 +14,7 @@ function rbacLevel(r) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
@@ -28,9 +27,6 @@ export default async function handler(req, res) {
     if (!supabaseUrl || !supabaseKey) return res.status(200).json({ reply: "Database not configured." });
     if (!anthropicKey) return res.status(200).json({ reply: "AI service not configured." });
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const auth = await verifyAuth(req, res, supabase);
-    if (!auth) return;
 
     // ── Resolve RBAC role ──
     let userRbacRole = 'viewer', userLevel = 1;
