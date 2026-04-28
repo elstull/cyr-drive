@@ -1,8 +1,21 @@
-// UNIFIED CHAT API — v5.0.0 (RBAC-Governed Intelligence per DN-008)
-// Unknown, not denied — restricted data never loaded into context.
-// RBAC: owner(4) > admin(3) > member(2) > viewer(1)
+// UNIFIED CHAT API — v5.1.0 (RC-001/003: conversation persistence)
+// Adds chat history persistence on top of v5.0.0 RBAC-governed intelligence.
+//
+// New in v5.1.0:
+//   - Accepts optional `conversationId` in request body
+//   - Auto-creates a new conversation row if none provided
+//   - Writes both user message and assistant reply to assistant_conversations
+//     with the conversation_id, so the trigger updates the thread metadata
+//   - Returns `conversation_id` in every response so the client can track
+//   - All persistence wrapped in try/catch — if conversations table does not
+//     exist (instances pre-migration), persistence silently no-ops and the
+//     chat still works. Safe to merge to main before customer instances
+//     receive the schema.
+//
+// RBAC (unchanged): owner(4) > admin(3) > member(2) > viewer(1)
 
 import { createClient } from '@supabase/supabase-js';
+import { verifyAuth } from './_auth.js';
 
 const INPUT_COST_PER_TOKEN = 5.0 / 1_000_000;
 const OUTPUT_COST_PER_TOKEN = 25.0 / 1_000_000;
@@ -12,14 +25,49 @@ function rbacLevel(r) {
   return r === 'owner' ? 4 : r === 'admin' ? 3 : r === 'member' ? 2 : r === 'viewer' ? 1 : 0;
 }
 
+// ── RC-001/003: conversation persistence helpers ──────────────────────────
+// Both helpers swallow errors so persistence never breaks the chat path.
+// If the `conversations` or `assistant_conversations` table is missing, or
+// the conversation_id column does not exist (pre-migration instances), the
+// inserts will fail and we'll just continue without persistence.
+async function ensureConversation(supabase, ownerId, conversationId) {
+  if (conversationId) return conversationId;
+  try {
+    const { data, error } = await supabase
+      .from('conversations')
+      .insert({ owner_id: ownerId })
+      .select('id')
+      .single();
+    if (error) { console.warn('ensureConversation:', error.message); return null; }
+    return data?.id || null;
+  } catch (e) {
+    console.warn('ensureConversation exception:', e.message);
+    return null;
+  }
+}
+
+async function persistMessage(supabase, conversationId, userId, role, content) {
+  if (!conversationId) return;
+  try {
+    await supabase.from('assistant_conversations').insert({
+      user_id: userId,
+      role,
+      content,
+      conversation_id: conversationId,
+    });
+  } catch (e) {
+    console.warn('persistMessage exception:', e.message);
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
-    const { message, history, userId, userName } = req.body;
+    const { message, history, userId, userName, conversationId } = req.body;
     const user = userName || userId;
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -27,6 +75,13 @@ export default async function handler(req, res) {
     if (!supabaseUrl || !supabaseKey) return res.status(200).json({ reply: "Database not configured." });
     if (!anthropicKey) return res.status(200).json({ reply: "AI service not configured." });
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const auth = await verifyAuth(req, res, supabase);
+    if (!auth) return;
+
+    // ── RC-001/003: establish conversation thread, persist user message ──
+    const activeConvId = await ensureConversation(supabase, userId, conversationId);
+    await persistMessage(supabase, activeConvId, userId, 'user', message);
 
     // ── Resolve RBAC role ──
     let userRbacRole = 'viewer', userLevel = 1;
@@ -59,7 +114,9 @@ export default async function handler(req, res) {
 
     if (wantsChart) {
       if (isFinancial && userLevel < 3) {
-        return res.status(200).json({ reply: "Financial data requires authorized access. Please contact your administrator." });
+        const denial = "Financial data requires authorized access. Please contact your administrator.";
+        await persistMessage(supabase, activeConvId, userId, 'assistant', denial);
+        return res.status(200).json({ reply: denial, conversation_id: activeConvId });
       }
       let chartReply = '';
       if (isFinancial) {
@@ -97,12 +154,13 @@ export default async function handler(req, res) {
         } else chartReply += 'No instances found.';
       }
       try { await supabase.from("api_usage_log").insert({ instance_code: instanceCode, user_id: user, input_tokens: 0, output_tokens: 0, total_tokens: 0, model: 'server-generated', estimated_cost_usd: 0, message_preview: message.substring(0, 100) }); } catch {}
-      return res.status(200).json({ reply: chartReply });
+      await persistMessage(supabase, activeConvId, userId, 'assistant', chartReply);
+      return res.status(200).json({ reply: chartReply, conversation_id: activeConvId });
     }
 
-    // ══════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════
     // BUILD RBAC-FILTERED CONTEXT
-    // ══════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════
 
     // Team — all see names/roles; owner/admin see emails
     let teamCtx = "No team members found.";
@@ -279,6 +337,9 @@ RULES:
     const data = await response.json();
     const reply = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n") || "Connection issue. Please try again.";
 
+    // ── RC-001/003: persist assistant reply ──
+    await persistMessage(supabase, activeConvId, userId, 'assistant', reply);
+
     // ── Log usage ──
     try {
       const u = data.usage;
@@ -290,7 +351,7 @@ RULES:
       });
     } catch {}
 
-    return res.status(200).json({ reply });
+    return res.status(200).json({ reply, conversation_id: activeConvId });
   } catch (error) {
     console.error("Chat API error:", error.message);
     return res.status(200).json({ reply: "Connection issue. Please try again." });
