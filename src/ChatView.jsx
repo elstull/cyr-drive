@@ -4,14 +4,20 @@ import remarkGfm from 'remark-gfm';
 import { CodeBlockRenderer } from './MermaidBlock';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CHAT VIEW — Dashboard-style layout for conversations and history
+// CHAT VIEW — v1.1 (RC-001/003: chat history provisioning)
 //
-// Same visual language as the Dashboard:
-// - Summary cards at top
-// - Clean sections
-// - Consistent spacing and colors
-// - Voice input via Web Speech API
+// v1.1 adds:
+//   - Active conversation tracking (conversationId state)
+//   - Conversation switcher: title + dropdown + "New" button between
+//     the tab toggle and the messages area
+//   - Auto-restore of most recent conversation on mount, so users return
+//     to where they left off
+//   - sendMessage now sends conversationId and captures the returned
+//     conversation_id (so the server creates a thread on first message
+//     and we track it from there)
 //
+// All v1 features preserved verbatim: voice input, markdown rendering,
+// Mermaid graphics, Activity History tab, copy button, send-on-Enter.
 // ═══════════════════════════════════════════════════════════════════════════
 
 const DIM = '#8899aa';
@@ -19,16 +25,41 @@ const BLUE = '#4a90d9';
 const GREEN = '#4ade80';
 const RED = '#e03030';
 
+// ── Helper: group conversations by recency for the picker ──
+function groupByRecency(list) {
+  const now = new Date();
+  const today = new Date(now); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+
+  const groups = { today: [], yesterday: [], thisWeek: [], older: [] };
+  for (const c of list) {
+    const d = new Date(c.last_message_at);
+    if (d >= today) groups.today.push(c);
+    else if (d >= yesterday) groups.yesterday.push(c);
+    else if (d >= weekAgo) groups.thisWeek.push(c);
+    else groups.older.push(c);
+  }
+  return groups;
+}
+
 
 export default function ChatView({ currentUser, users, supabase }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState('chat'); // 'chat' or 'history'
+  const [view, setView] = useState('chat');
   const [activityLog, setActivityLog] = useState([]);
   const [logLoading, setLogLoading] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [isListening, setIsListening] = useState(false);
+
+  // ── RC-001/003: conversation state ──
+  const [conversationId, setConversationId] = useState(null);
+  const [conversationsList, setConversationsList] = useState([]);
+  const [showConversations, setShowConversations] = useState(false);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+
   const endRef = useRef(null);
   const recognitionRef = useRef(null);
 
@@ -92,7 +123,7 @@ export default function ChatView({ currentUser, users, supabase }) {
 
   const userName = users?.[currentUser]?.name?.split(' ')[0] || 'there';
 
-  // Load activity log
+  // ── Activity log loader (unchanged) ──
   const loadHistory = useCallback(async () => {
     if (!supabase) return;
     setLogLoading(true);
@@ -111,6 +142,86 @@ export default function ChatView({ currentUser, users, supabase }) {
     if (view === 'history') loadHistory();
   }, [view, loadHistory]);
 
+  // ── RC-001/003: load list of past conversations for this user ──
+  const loadConversations = useCallback(async () => {
+    if (!supabase || !currentUser) return [];
+    setConversationsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('id, title, message_count, last_message_at, created_at, status, pinned')
+        .eq('owner_id', currentUser)
+        .eq('status', 'active')
+        .order('last_message_at', { ascending: false })
+        .limit(50);
+      if (error) { console.error('Load conversations error:', error); return []; }
+      const list = data || [];
+      setConversationsList(list);
+      return list;
+    } catch (e) {
+      console.error('Load conversations exception:', e);
+      return [];
+    } finally {
+      setConversationsLoading(false);
+    }
+  }, [supabase, currentUser]);
+
+  // ── RC-001/003: load messages for a given conversation ──
+  const loadMessages = useCallback(async (convId) => {
+    if (!convId || !supabase) { setMessages([]); return; }
+    try {
+      const { data, error } = await supabase
+        .from('assistant_conversations')
+        .select('id, role, content, created_at')
+        .eq('conversation_id', convId)
+        .order('created_at', { ascending: true });
+      if (error) { console.error('Load messages error:', error); return; }
+      const formatted = (data || []).map(m => ({
+        role: m.role,
+        content: m.content,
+        time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }));
+      setMessages(formatted);
+      setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    } catch (e) {
+      console.error('Load messages exception:', e);
+    }
+  }, [supabase]);
+
+  // ── RC-001/003: on mount, fetch the list and auto-restore most recent ──
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const list = await loadConversations();
+      if (cancelled) return;
+      if (list.length > 0) {
+        const mostRecent = list[0];
+        setConversationId(mostRecent.id);
+        await loadMessages(mostRecent.id);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loadConversations, loadMessages]);
+
+  // ── RC-001/003: start a fresh conversation ──
+  const newConversation = () => {
+    setConversationId(null);
+    setMessages([]);
+    setShowConversations(false);
+    setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  };
+
+  // ── RC-001/003: switch to a different conversation ──
+  const switchConversation = async (convId) => {
+    if (convId === conversationId) {
+      setShowConversations(false);
+      return;
+    }
+    setConversationId(convId);
+    setShowConversations(false);
+    await loadMessages(convId);
+  };
+
   const timeAgo = (d) => {
     if (!d) return '';
     const mins = Math.floor((Date.now() - new Date(d).getTime()) / 60000);
@@ -121,7 +232,6 @@ export default function ChatView({ currentUser, users, supabase }) {
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
-    // Stop listening if voice is active
     if (isListening && recognitionRef.current) {
       recognitionRef.current.stop();
       setIsListening(false);
@@ -152,7 +262,13 @@ export default function ChatView({ currentUser, users, supabase }) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ message: msg, history, userId: currentUser, userName: users?.[currentUser]?.name || currentUser }),
+        body: JSON.stringify({
+          message: msg,
+          history,
+          userId: currentUser,
+          userName: users?.[currentUser]?.name || currentUser,
+          conversationId, // RC-001/003: server uses this to thread messages
+        }),
       });
 
       if (wantsPresentation && response.ok) {
@@ -178,6 +294,11 @@ export default function ChatView({ currentUser, users, supabase }) {
 
       const data = await response.json();
       let reply = data?.reply || 'I had trouble connecting. Please try again.';
+
+      // RC-001/003: capture the server-issued conversation_id
+      if (data?.conversation_id && data.conversation_id !== conversationId) {
+        setConversationId(data.conversation_id);
+      }
 
       if (reply.includes('[PRESENTATION]')) {
         const presResponse = await fetch('/api/generate-presentation', {
@@ -210,6 +331,10 @@ export default function ChatView({ currentUser, users, supabase }) {
           ? { role: 'assistant', content: reply, time: time() }
           : m
       ));
+
+      // RC-001/003: refresh conversations list so the picker shows the
+      // newly-created (or newly-updated) thread without a manual reload
+      loadConversations();
     } catch (err) {
       console.error('Chat error:', err);
       setMessages(prev => prev.map((m, i) =>
@@ -222,6 +347,11 @@ export default function ChatView({ currentUser, users, supabase }) {
       setTimeout(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
   };
+
+  // RC-001/003: derived view state for the conversation picker
+  const activeConversation = conversationsList.find(c => c.id === conversationId);
+  const activeTitle = activeConversation?.title || (conversationId ? '...' : 'New conversation');
+  const groups = groupByRecency(conversationsList);
 
   return (
     <div style={{ maxWidth: 520, margin: '0 auto', padding: '16px' }}>
@@ -259,10 +389,113 @@ export default function ChatView({ currentUser, users, supabase }) {
       {/* ── CONVERSATION VIEW ── */}
       {view === 'chat' && (
         <>
+          {/* RC-001/003: conversation switcher */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: '#0a0e17', border: '1px solid #1e293b',
+              borderRadius: 8, padding: '6px 10px',
+            }}>
+              <button
+                onClick={() => setShowConversations(s => !s)}
+                style={{
+                  flex: 1, display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  padding: 0, color: '#e2e8f0', fontSize: 12, fontWeight: 600,
+                  fontFamily: 'inherit', textAlign: 'left', minWidth: 0,
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+                title={showConversations ? 'Hide conversations' : 'Show past conversations'}
+              >
+                <span style={{ fontSize: 12, color: DIM, flexShrink: 0 }}>{'\uD83D\uDD52'}</span>
+                <span style={{
+                  flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  color: conversationId ? '#e2e8f0' : DIM,
+                }}>
+                  {activeTitle}
+                </span>
+                <span style={{ fontSize: 10, color: DIM, flexShrink: 0 }}>
+                  {showConversations ? '\u25B2' : '\u25BC'}
+                </span>
+              </button>
+              <button
+                onClick={newConversation}
+                style={{
+                  background: BLUE + '22', border: '1px solid ' + BLUE + '66',
+                  borderRadius: 4, padding: '3px 10px', color: BLUE,
+                  fontSize: 11, fontFamily: 'inherit', fontWeight: 600,
+                  cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0,
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+                title="Start a new conversation"
+              >
+                + New
+              </button>
+            </div>
+
+            {/* Expanded list of past conversations */}
+            {showConversations && (
+              <div style={{
+                marginTop: 6, background: '#0a0e17', border: '1px solid #1e293b',
+                borderRadius: 8, padding: '8px 4px', maxHeight: 300, overflowY: 'auto',
+              }}>
+                {conversationsLoading && (
+                  <div style={{ padding: '8px 12px', fontSize: 11, color: DIM }}>Loading...</div>
+                )}
+                {!conversationsLoading && conversationsList.length === 0 && (
+                  <div style={{ padding: '8px 12px', fontSize: 11, color: DIM, fontStyle: 'italic' }}>
+                    No past conversations yet. Send a message to start one.
+                  </div>
+                )}
+                {!conversationsLoading && [
+                  ['Today', groups.today],
+                  ['Yesterday', groups.yesterday],
+                  ['This week', groups.thisWeek],
+                  ['Earlier', groups.older],
+                ].map(([label, list]) => (
+                  list.length > 0 && (
+                    <div key={label}>
+                      <div style={{
+                        fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+                        color: DIM, padding: '6px 12px 2px', textTransform: 'uppercase',
+                      }}>{label}</div>
+                      {list.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => switchConversation(c.id)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            width: '100%', padding: '6px 12px',
+                            background: c.id === conversationId ? BLUE + '15' : 'transparent',
+                            border: 'none', borderRadius: 4, cursor: 'pointer',
+                            color: c.id === conversationId ? BLUE : '#c8d4e0',
+                            fontSize: 11, fontFamily: 'inherit', textAlign: 'left',
+                            WebkitTapHighlightColor: 'transparent',
+                          }}
+                        >
+                          <span style={{ fontSize: 9, color: DIM, flexShrink: 0, width: 18 }}>
+                            {c.id === conversationId ? '\u2713' : ''}
+                          </span>
+                          <span style={{
+                            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            fontWeight: c.id === conversationId ? 600 : 400,
+                          }}>{c.title}</span>
+                          <span style={{ fontSize: 9, color: DIM, flexShrink: 0 }}>
+                            {timeAgo(c.last_message_at)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Messages */}
           <div style={{
             background: '#111827', border: '1px solid #3a4a5e', borderRadius: 12,
-            padding: '12px', minHeight: 300, maxHeight: 'calc(100vh - 340px)',
+            padding: '12px', minHeight: 300, maxHeight: 'calc(100vh - 380px)',
             overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8,
             marginBottom: 12,
           }}>
