@@ -22,37 +22,21 @@ import {
 } from "lucide-react";
 
 /**
- * GraphicViewer v3
+ * GraphicViewer v3.1
  *
- * A diagram studio embedded in FSM Drive Chat. Wraps any rendered graphic
- * (SVG, canvas, Mermaid, Three.js, Plotly, etc.) with:
+ * v3.1 fix: the in-chat placeholder is now a single-line breadcrumb
+ *   (~32px tall) instead of a stacked broken-Tailwind header + 120px
+ *   light-blue panel. Cause was Tailwind layout classes on the
+ *   InlineBlock header (`flex items-center justify-between ...`) that
+ *   never applied at runtime (no Tailwind config in this project), so
+ *   the title and Detach/Return button stacked vertically rather than
+ *   laying out as a horizontal bar. Both attached and detached inline
+ *   states now use inline styles consistently, matching the
+ *   DetachedWindow chrome treatment from earlier iterations.
  *
- *   Inline mode: a small header with a "Detach" button; content renders
- *   in the Chat flow at its natural size.
- *
- *   Detached mode: a floating window the user can:
- *     - Drag (title bar)
- *     - Resize (bottom-right grip, or edge grips)
- *     - Zoom 0.1x to 10x (buttons, Ctrl+wheel, keyboard +/-)
- *     - Pan when zoomed (click-and-drag on content)
- *     - Marquee zoom (Shift+drag to zoom to a rectangle)
- *     - Zoom-to-fit (keyboard "0", button)
- *     - Zoom-to-100% (keyboard "1", button)
- *     - Maximize (button, or Ctrl+M)
- *     - Toggle light/dark background (button)
- *     - Re-attach (Escape, X button, or Return in inline placeholder)
- *
- *   Chrome auto-hides after 3 seconds of inactivity, reveals on mouse
- *   movement. Keyboard shortcuts work whenever the window is focused.
- *
- *   Multi-instance: each <GraphicViewer> instance carries its own state,
- *   so multiple graphics can be detached side-by-side.
- *
- * 3D handling: the viewer detects <canvas> children and disables its own
- * pan/zoom/marquee when canvas is present, letting the 3D library's
- * native controls (orbit, pan, dolly) handle internal manipulation.
- * The viewer still provides the window chrome (drag, resize, maximize,
- * detach).
+ * v3 features preserved verbatim: detachable Mermaid/SVG/Three.js viewer
+ * with drag, resize, marquee zoom, wheel zoom, fit-to-window, dark-mode
+ * toggle, maximize, keyboard shortcuts, and 3D canvas auto-detect.
  *
  * Usage:
  *   <GraphicViewer title="Export Order FSM">
@@ -69,7 +53,7 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   const [pos, setPos] = useState({ x: 120, y: 80 });
   const [size, setSize] = useState({ width: 900, height: 680 });
   const [intrinsic, setIntrinsic] = useState({ width: 0, height: 0 });
-  const [marquee, setMarquee] = useState(null); // { startX, startY, currentX, currentY }
+  const [marquee, setMarquee] = useState(null);
   const [chromeVisible, setChromeVisible] = useState(true);
   const [is3D, setIs3D] = useState(false);
 
@@ -80,9 +64,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   const chromeTimerRef = useRef(null);
 
   // ---------------- 3D detection ----------------
-  // On mount and whenever children change, look for a <canvas> element
-  // among the rendered children. If found, this is a 3D/canvas-based
-  // graphic and we should disable our own pan/zoom/marquee.
   useLayoutEffect(() => {
     if (!contentInnerRef.current) return;
     const canvas = contentInnerRef.current.querySelector("canvas");
@@ -90,15 +71,10 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   }, [children, detached]);
 
   // ---------------- Intrinsic size measurement ----------------
-  // Needed for zoom-to-fit calculations. We measure the natural
-  // bounding box of the content (unscaled).
   useLayoutEffect(() => {
     if (!contentInnerRef.current || !detached) return;
-    // Measure without transform applied: find the first child element
-    // and read its natural size.
     const firstChild = contentInnerRef.current.firstElementChild;
     if (firstChild) {
-      // Prefer SVG's intrinsic width/height if available.
       if (firstChild.tagName === "svg") {
         const vb = firstChild.viewBox?.baseVal;
         if (vb && vb.width && vb.height) {
@@ -106,7 +82,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
           return;
         }
       }
-      // Fallback to getBoundingClientRect, accounting for current zoom.
       const rect = firstChild.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
         setIntrinsic({
@@ -140,7 +115,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   useEffect(() => {
     if (!detached) return;
     const onKey = (e) => {
-      // Don't capture if user is typing in an input inside the graphic
       const tag = document.activeElement?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
 
@@ -190,7 +164,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       return;
     }
     const area = contentAreaRef.current.getBoundingClientRect();
-    // Subtract a little padding from the available area.
     const availableW = area.width - 40;
     const availableH = area.height - 40;
     const zx = availableW / intrinsic.width;
@@ -225,7 +198,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   );
 
   // ---------------- Resize grip ----------------
-  // edge: 'corner' (width+height), 'bottom' (height only), 'right' (width only)
   const startResize = useCallback(
     (e, edge = 'corner') => {
       if (maximized) return;
@@ -259,12 +231,10 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   );
 
   // ---------------- Content-area pan (2D only) ----------------
-  // Click and drag on the content area pans the graphic.
-  // Skipped for 3D because the 3D library handles its own mouse input.
   const startContentDrag = useCallback(
     (e) => {
       if (is3D) return;
-      if (e.shiftKey) return; // shift+drag starts marquee instead
+      if (e.shiftKey) return;
       if (e.button !== 0) return;
       e.preventDefault();
       const startX = e.clientX;
@@ -306,7 +276,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       const onUp = (ev) => {
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
-        // Compute the marquee rectangle and zoom to fit it.
         const endX = ev.clientX - areaRect.left;
         const endY = ev.clientY - areaRect.top;
         const rx = Math.min(startX, endX);
@@ -314,14 +283,11 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         const rw = Math.abs(endX - startX);
         const rh = Math.abs(endY - startY);
         setMarquee(null);
-        // Require a minimum size so accidental clicks don't zoom.
         if (rw < 20 || rh < 20) return;
-        // Compute new zoom so the marquee rectangle fills the area.
         const newZoomX = areaRect.width / rw;
         const newZoomY = areaRect.height / rh;
         const zoomFactor = Math.min(newZoomX, newZoomY);
         const newZoom = Math.max(0.1, Math.min(10, zoom * zoomFactor));
-        // Compute new pan so the marquee center moves to the viewport center.
         const marqueeCenterX = rx + rw / 2;
         const marqueeCenterY = ry + rh / 2;
         const areaCenterX = areaRect.width / 2;
@@ -344,7 +310,7 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   const handleWheel = useCallback(
     (e) => {
       if (!e.ctrlKey) return;
-      if (is3D) return; // 3D lib handles its own wheel
+      if (is3D) return;
       e.preventDefault();
       const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
       setZoom((z) => Math.max(0.1, Math.min(10, z * factor)));
@@ -359,10 +325,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
   }, []);
 
   // ---------------- Detached window geometry ----------------
-  // When maximized, snap to viewport minus a small margin.
-  // Chrome is set as explicit inline styles because this file's Tailwind
-  // classes are not being applied at runtime (the rest of the app uses
-  // inline styles). Without these the floating window has no visible edge.
   const windowChrome = {
     background: bgDark ? "#1a1a2e" : "white",
     border: bgDark ? "1px solid #444" : "1px solid #666",
@@ -392,31 +354,81 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         ...windowChrome,
       };
 
-  // ---------------- Inline block ----------------
+  // ─────────────────────────────────────────────────────────────────────
+  // INLINE BLOCK (v3.1 — fully inline-styled, no Tailwind dependence)
+  //
+  //   Detached state: single-line breadcrumb (~32px) with Return inline
+  //   Attached state: thin header (~32px) with Detach inline + content
+  // ─────────────────────────────────────────────────────────────────────
   const InlineBlock = (
-    <div
-      className={`my-3 rounded-lg border ${
-        detached
-          ? "border-dashed border-gray-400 bg-gray-50 dark:bg-gray-800"
-          : "border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
-      }`}
-    >
-      <div className="flex items-center justify-between border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">
-          {title}
-        </span>
-        <div className="flex gap-1">
-          {detached ? (
-            <button
-              type="button"
-              onClick={() => setDetached(false)}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-900/30"
-              title="Return graphic to Chat"
-            >
-              <RotateCcw size={14} />
-              Return
-            </button>
-          ) : (
+    <div style={{
+      margin: '12px 0',
+      borderRadius: 8,
+      overflow: 'hidden',
+      background: detached ? 'transparent' : 'rgba(15, 20, 25, 0.4)',
+      border: detached ? 'none' : '1px solid rgba(74, 144, 217, 0.15)',
+    }}>
+      {detached ? (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '6px 10px',
+          background: 'rgba(74, 144, 217, 0.08)',
+          border: '1px dashed rgba(74, 144, 217, 0.4)',
+          borderRadius: 6,
+          fontSize: 12,
+          color: '#8899aa',
+          fontStyle: 'italic',
+        }}>
+          <span style={{ fontSize: 14, fontStyle: 'normal' }}>{'\u2197'}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            {title} is in a floating window. Press Esc or click Return to bring it back.
+          </span>
+          <button
+            type="button"
+            onClick={() => setDetached(false)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              background: 'rgba(74, 144, 217, 0.15)',
+              border: '1px solid rgba(74, 144, 217, 0.4)',
+              borderRadius: 4,
+              padding: '3px 10px',
+              color: '#4a90d9',
+              fontSize: 11,
+              fontFamily: 'inherit',
+              fontWeight: 600,
+              fontStyle: 'normal',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+            }}
+            title="Return graphic to Chat (Esc)"
+          >
+            <RotateCcw size={11} />
+            Return
+          </button>
+        </div>
+      ) : (
+        <>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 12px',
+            borderBottom: '1px solid rgba(74, 144, 217, 0.15)',
+            flexShrink: 0,
+          }}>
+            <span style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#e0e8f0',
+              letterSpacing: '0.02em',
+            }}>
+              {title}
+            </span>
             <button
               type="button"
               onClick={() => {
@@ -425,41 +437,31 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
                 setSize({ width: defaultW, height: defaultH });
                 setDetached(true);
               }}
-              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                background: 'rgba(74, 144, 217, 0.15)',
+                border: '1px solid rgba(74, 144, 217, 0.4)',
+                borderRadius: 4,
+                padding: '3px 10px',
+                color: '#4a90d9',
+                fontSize: 11,
+                fontFamily: 'inherit',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
               title="Open in detachable viewer"
             >
-              <Expand size={14} />
+              <Expand size={11} />
               Detach
             </button>
-          )}
-        </div>
-      </div>
-      {detached ? (
-        <div style={{
-          height: 120,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: '#f0f4f8',
-          border: '2px dashed #b0bec5',
-          borderRadius: 8,
-          color: '#546e7a',
-          fontSize: 14,
-          fontStyle: 'italic',
-          padding: 16,
-          gap: 6,
-        }}>
-          <div style={{ fontSize: 20 }}>{'↗'}</div>
-          <div>This graphic has been detached</div>
-          <div style={{ fontSize: 12, opacity: 0.7 }}>
-            Look for the floating window. Press Esc or click Return to bring it back.
           </div>
-        </div>
-      ) : (
-        <div ref={contentInnerRef} className="overflow-auto p-3">
-          {children}
-        </div>
+          <div ref={contentInnerRef} style={{ padding: 12, overflow: 'auto' }}>
+            {children}
+          </div>
+        </>
       )}
     </div>
   );
@@ -469,7 +471,7 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
     <div
       ref={windowRef}
       style={windowStyle}
-      className="gv-detached flex flex-col overflow-hidden rounded-lg border border-gray-300 bg-white shadow-2xl dark:border-gray-600 dark:bg-gray-900"
+      className="gv-detached"
       tabIndex={0}
       onMouseMove={bumpChromeVisibility}
     >
@@ -477,9 +479,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
       <div
         onMouseDown={startWindowDrag}
         onDoubleClick={() => setMaximized((m) => !m)}
-        className={`transition-opacity ${
-          chromeVisible ? "opacity-100" : "opacity-30 hover:opacity-100"
-        }`}
         style={{
           cursor: maximized ? "default" : "move",
           display: "flex",
@@ -490,21 +489,36 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
           color: bgDark ? "#e0e0e0" : "#333333",
           borderBottom: bgDark ? "1px solid #3a3a4e" : "1px solid #e5e7eb",
           flexShrink: 0,
+          opacity: chromeVisible ? 1 : 0.3,
+          transition: "opacity 0.2s",
         }}
       >
-        <div className="flex items-center gap-2">
-          {!maximized && <Move size={14} className="text-gray-400" />}
-          <span className="select-none text-sm font-medium text-gray-700 dark:text-gray-200">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!maximized && <Move size={14} style={{ color: '#9ca3af' }} />}
+          <span style={{
+            userSelect: 'none',
+            fontSize: 13,
+            fontWeight: 600,
+            color: bgDark ? '#e0e0e0' : '#374151',
+          }}>
             {title}
           </span>
           {is3D && (
-            <span className="ml-2 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/40 dark:text-purple-200">
+            <span style={{
+              marginLeft: 8,
+              borderRadius: 4,
+              background: bgDark ? 'rgba(139, 92, 246, 0.3)' : '#ede9fe',
+              padding: '2px 6px',
+              fontSize: 10,
+              fontWeight: 600,
+              color: bgDark ? '#c4b5fd' : '#6d28d9',
+            }}>
               3D
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           {!is3D && (
             <>
               <ToolbarButton
@@ -616,12 +630,8 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         )}
       </div>
 
-      {/* Status bar \u2014 short label + tooltip; wraps rather than forcing
-          the window wider than its contents need. */}
+      {/* Status bar */}
       <div
-        className={`transition-opacity ${
-          chromeVisible ? "opacity-100" : "opacity-30 hover:opacity-100"
-        }`}
         style={{
           borderTop: bgDark ? "1px solid #3a3a4e" : "1px solid #e5e7eb",
           background: bgDark ? "#2a2a3e" : "transparent",
@@ -635,6 +645,8 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
           gap: 8,
           whiteSpace: "normal",
           flexShrink: 0,
+          opacity: chromeVisible ? 1 : 0.3,
+          transition: "opacity 0.2s",
         }}
       >
         <span
@@ -650,12 +662,9 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
         {!is3D && <span>{Math.round(zoom * 100)}%</span>}
       </div>
 
-      {/* Resize handles — three edges. Positioned inline because the
-          Tailwind layout classes used elsewhere in this file are not
-          applied at runtime (no Tailwind config in project). */}
+      {/* Resize handles */}
       {!maximized && (
         <>
-          {/* Bottom edge — height only */}
           <div
             onMouseDown={(e) => startResize(e, 'bottom')}
             style={{
@@ -669,7 +678,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
             }}
             title="Drag to resize height"
           />
-          {/* Right edge — width only */}
           <div
             onMouseDown={(e) => startResize(e, 'right')}
             style={{
@@ -683,8 +691,6 @@ export default function GraphicViewer({ children, title = "Graphic" }) {
             }}
             title="Drag to resize width"
           />
-          {/* Bottom-right corner — width + height, with visible diagonal
-              stripe indicator so users can see the grab target. */}
           <div
             onMouseDown={(e) => startResize(e, 'corner')}
             style={{
