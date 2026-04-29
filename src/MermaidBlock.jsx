@@ -1,16 +1,79 @@
 import { useEffect, useRef, useState, Component } from 'react';
 import mermaid from 'mermaid';
+import GraphicViewer from './components/GraphicViewer.jsx';
 
-// ═══════════════════════════════════════════════════════════════════════════
-// MERMAID DIAGRAM RENDERER — v2.1
-// Fix: React error #60 — cannot have both dangerouslySetInnerHTML and
-// children on the same element. Now uses conditional rendering.
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
+// MERMAID DIAGRAM RENDERER — v2.2
+// v2.2: mindmap branches now colorize by section. Mermaid's default
+//       mindmap rendering picks all branch backgrounds from one color
+//       (primaryColor) which made every node identical dark navy.
+//       Two complementary fixes:
+//         1. cScale0..cScale11 theme variables — Mermaid's documented
+//            palette that mindmaps consume by branch index
+//         2. .section-N CSS overrides in themeCSS — practical fallback
+//            because mindmap coloring via theme variables is inconsistent
+//            across Mermaid versions (see GitHub mermaid-js#5156)
+//       Whichever path the renderer honors takes effect.
+// v2.1: Fix React error #60 — cannot have both dangerouslySetInnerHTML
+//       and children on the same element.
+// ─────────────────────────────────────────────────────────────────────
 
 let mermaidInitialized = false;
 function ensureMermaidInit() {
   if (mermaidInitialized) return;
   try {
+    // Branch-color palette — re-used for both cScale theme variables and
+    // .section-N CSS overrides. Eight distinct hues; sections 8..11 cycle
+    // back through the first four for very wide mindmaps.
+    const branchPalette = [
+      '#4a90d9', // blue
+      '#4ade80', // green
+      '#f59e0b', // amber
+      '#8b5cf6', // purple
+      '#ef4444', // red
+      '#14b8a6', // teal
+      '#ec4899', // pink
+      '#6366f1', // indigo
+      '#f97316', // orange
+      '#06b6d4', // cyan
+      '#a855f7', // violet
+      '#22c55e', // bright green
+    ];
+
+    // Build cScale0..cScale11 theme variables from the palette.
+    const cScale = {};
+    branchPalette.forEach((color, i) => {
+      cScale[`cScale${i}`] = color;
+      cScale[`cScalePeer${i}`] = color;       // border/peer color
+      cScale[`cScaleLabel${i}`] = '#ffffff';  // text on colored background
+    });
+
+    // Build .section-N CSS overrides. Mermaid renders each top-level
+    // mindmap branch with class `section-N` (and -1 for root); children
+    // inherit the parent's section number. Targeting rect/circle/path
+    // covers all node shapes mindmap may use.
+    let sectionCSS = '';
+    branchPalette.forEach((color, i) => {
+      sectionCSS += `
+        .mindmap-node.section-${i} > rect,
+        .mindmap-node.section-${i} > circle,
+        .mindmap-node.section-${i} > path,
+        .section-${i} .node-bkg { fill: ${color} !important; stroke: ${color} !important; }
+        .mindmap-node.section-${i} .node-label,
+        .section-${i} text { fill: #ffffff !important; }
+        .edge.section-${i} > path { stroke: ${color} !important; }
+      `;
+    });
+    // Root node (section -1) gets a distinct treatment so it stands apart.
+    sectionCSS += `
+      .mindmap-node.section--1 > rect,
+      .mindmap-node.section--1 > circle,
+      .mindmap-node.section--1 > path,
+      .section-root .node-bkg { fill: #1e293b !important; stroke: #4a90d9 !important; stroke-width: 2px !important; }
+      .mindmap-node.section--1 .node-label,
+      .section-root text { fill: #e0e8f0 !important; font-weight: 600 !important; }
+    `;
+
     mermaid.initialize({
       startOnLoad: false,
       theme: 'base',
@@ -35,6 +98,7 @@ function ensureMermaidInit() {
         noteBkgColor: '#2a2a3e',
         noteTextColor: '#c0c8d0',
         noteBorderColor: '#4a90d9',
+        // Pie chart palette (unchanged)
         pie1: '#4a90d9',
         pie2: '#4ade80',
         pie3: '#f59e0b',
@@ -52,6 +116,8 @@ function ensureMermaidInit() {
         pieLegendTextSize: '12px',
         pieLegendTextColor: '#e0e8f0',
         pieOpacity: '0.9',
+        // Mindmap branch palette (NEW in v2.2)
+        ...cScale,
       },
       flowchart: { curve: 'basis', padding: 20 },
       sequence: { actorMargin: 50, mirrorActors: false },
@@ -69,6 +135,7 @@ function ensureMermaidInit() {
         .pieTitleText { fill: #e0e8f0 !important; font-size: 16px !important; }
         .slice { stroke: #1e293b !important; }
         .legend text { fill: #e0e8f0 !important; }
+        ${sectionCSS}
       `,
     });
     mermaidInitialized = true;
@@ -77,9 +144,9 @@ function ensureMermaidInit() {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 // ERROR BOUNDARY
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 class DiagramErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -118,13 +185,12 @@ class DiagramErrorBoundary extends Component {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 // MERMAID BLOCK
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 function MermaidBlockInner({ code }) {
   const [svg, setSvg] = useState('');
   const [error, setError] = useState(null);
-  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     if (!code) return;
@@ -169,77 +235,30 @@ function MermaidBlockInner({ code }) {
     );
   }
 
-  return (
-    <div style={{
-      background: '#0f1419',
-      border: '1px solid #4a90d922',
-      borderRadius: 8,
-      margin: '12px 0',
-      overflow: 'hidden',
-    }}>
-      <div
-        onClick={() => setExpanded(!expanded)}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '6px 12px',
-          background: '#1e293b',
-          borderBottom: expanded ? '1px solid #4a90d922' : 'none',
-          cursor: 'pointer',
-          userSelect: 'none',
-        }}
-      >
-        <span style={{ fontSize: 11, color: '#4a90d9', fontWeight: 600 }}>
-          📊 Diagram
-        </span>
-        <span style={{ fontSize: 10, color: '#6b7280' }}>
-          {expanded ? '▼' : '▶'}
-        </span>
+  if (!svg) {
+    return (
+      <div style={{ padding: 16, color: '#6b7280', fontSize: 12, textAlign: 'center' }}>
+        Rendering diagram...
       </div>
+    );
+  }
 
-      {expanded && svg && (
-        <div
-          style={{
-            padding: '16px',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            minHeight: 100,
-            overflow: 'auto',
-          }}
-          dangerouslySetInnerHTML={{ __html: svg }}
-        />
-      )}
-
-      {expanded && !svg && (
-        <div style={{
-          padding: '16px',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: 100,
-        }}>
-          <div style={{ color: '#6b7280', fontSize: 12 }}>
-            Rendering diagram...
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <div dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
 export default function MermaidBlock({ code }) {
   return (
     <DiagramErrorBoundary>
-      <MermaidBlockInner code={code} />
+      <GraphicViewer>
+        <MermaidBlockInner code={code} />
+      </GraphicViewer>
     </DiagramErrorBoundary>
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 // CUSTOM CODE RENDERER FOR REACTMARKDOWN
-// ═══════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────────────
 export function CodeBlockRenderer({ node, inline, className, children, ...props }) {
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : '';
@@ -248,7 +267,9 @@ export function CodeBlockRenderer({ node, inline, className, children, ...props 
     const code = String(children).replace(/\n$/, '');
     return (
       <DiagramErrorBoundary>
-        <MermaidBlockInner code={code} />
+        <GraphicViewer>
+          <MermaidBlockInner code={code} />
+        </GraphicViewer>
       </DiagramErrorBoundary>
     );
   }
