@@ -1,18 +1,19 @@
-// UNIFIED CHAT API — v5.1.0 (RC-001/003: conversation persistence)
-// Adds chat history persistence on top of v5.0.0 RBAC-governed intelligence.
+// UNIFIED CHAT API — v5.2.0 (work-tracking context for platform owners)
 //
-// New in v5.1.0:
-//   - Accepts optional `conversationId` in request body
-//   - Auto-creates a new conversation row if none provided
-//   - Writes both user message and assistant reply to assistant_conversations
-//     with the conversation_id, so the trigger updates the thread metadata
-//   - Returns `conversation_id` in every response so the client can track
-//   - All persistence wrapped in try/catch — if conversations table does not
-//     exist (instances pre-migration), persistence silently no-ops and the
-//     chat still works. Safe to merge to main before customer instances
-//     receive the schema.
+// New in v5.2.0:
+//   - Loads open todos and recent work_log entries into the system prompt
+//     context for platform owners (you and Rick on a1ai).
+//   - Non-platform-owners see no change. The loader silently no-ops for
+//     them, matching the RLS posture on the underlying tables.
+//   - Asking Chat "what's open?" or "what did we ship this week?" now
+//     returns the actual answer rather than "I don't have visibility
+//     into that."
 //
-// RBAC (unchanged): owner(4) > admin(3) > member(2) > viewer(1)
+// v5.1.0 (existing): conversation persistence (RC-001/003)
+// v5.0.0 (existing): RBAC-governed intelligence per DN-008
+//
+// RBAC: owner(4) > admin(3) > member(2) > viewer(1)  — data tier
+// Platform: owner | member  — meta tier (AcuityFirst people vs everyone else)
 
 import { createClient } from '@supabase/supabase-js';
 import { verifyAuth } from './_auth.js';
@@ -25,11 +26,7 @@ function rbacLevel(r) {
   return r === 'owner' ? 4 : r === 'admin' ? 3 : r === 'member' ? 2 : r === 'viewer' ? 1 : 0;
 }
 
-// ── RC-001/003: conversation persistence helpers ──────────────────────────
-// Both helpers swallow errors so persistence never breaks the chat path.
-// If the `conversations` or `assistant_conversations` table is missing, or
-// the conversation_id column does not exist (pre-migration instances), the
-// inserts will fail and we'll just continue without persistence.
+// ── RC-001/003: conversation persistence helpers (unchanged from v5.1.0) ──
 async function ensureConversation(supabase, ownerId, conversationId) {
   if (conversationId) return conversationId;
   try {
@@ -60,6 +57,71 @@ async function persistMessage(supabase, conversationId, userId, role, content) {
   }
 }
 
+// ── v5.2.0: work-tracking context for platform owners ──
+// Returns formatted text describing current todos + recent work_log,
+// or empty string for non-owners. Wrapped in try/catch so missing tables
+// (e.g., on customer instances pre-migration) gracefully no-op.
+async function loadWorkTrackingContext(supabase, platformRole) {
+  if (platformRole !== 'owner') return '';
+  try {
+    const { data: todos, error: todoErr } = await supabase
+      .from('todo')
+      .select('id, title, status, priority, post_date, related_to, notes')
+      .eq('status', 'open')
+      .order('post_date', { ascending: false })
+      .limit(40);
+
+    const { data: log, error: logErr } = await supabase
+      .from('work_log')
+      .select('title, what_changed, why_it_mattered, post_date, related_to')
+      .order('post_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(15);
+
+    if (todoErr && logErr) return '';  // both failed — likely no tables
+
+    const priorityRank = (p) => p === 'high' ? 1 : p === 'normal' ? 2 : p === 'as needed' ? 3 : 4;
+    const sortedTodos = (todos || []).slice().sort((a, b) => {
+      const pr = priorityRank(a.priority) - priorityRank(b.priority);
+      if (pr !== 0) return pr;
+      return (b.post_date || '').localeCompare(a.post_date || '');
+    });
+
+    let ctx = '';
+
+    if (sortedTodos.length > 0) {
+      ctx += '\n\nOPEN TODOS (work tracking — platform owners only):';
+      for (const t of sortedTodos) {
+        const prio = t.priority || 'unspecified';
+        const ref = t.related_to ? ` [${t.related_to}]` : '';
+        ctx += `\n  - [${t.id}] (${prio}, posted ${t.post_date}) ${t.title}${ref}`;
+        if (t.notes) {
+          // First ~200 chars of notes, single line
+          const preview = t.notes.replace(/\s+/g, ' ').trim().slice(0, 200);
+          ctx += `\n      notes: ${preview}${t.notes.length > 200 ? '...' : ''}`;
+        }
+      }
+    }
+
+    if (log && log.length > 0) {
+      ctx += '\n\nRECENT WORK_LOG (last 15 entries):';
+      for (const w of log) {
+        const ref = w.related_to ? ` [${w.related_to}]` : '';
+        ctx += `\n  - (${w.post_date}) ${w.title}${ref}`;
+        if (w.why_it_mattered) {
+          const preview = w.why_it_mattered.replace(/\s+/g, ' ').trim().slice(0, 150);
+          ctx += `\n      why: ${preview}${w.why_it_mattered.length > 150 ? '...' : ''}`;
+        }
+      }
+    }
+
+    return ctx;
+  } catch (e) {
+    console.warn('loadWorkTrackingContext exception:', e.message);
+    return '';
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization');
@@ -83,11 +145,16 @@ export default async function handler(req, res) {
     const activeConvId = await ensureConversation(supabase, userId, conversationId);
     await persistMessage(supabase, activeConvId, userId, 'user', message);
 
-    // ── Resolve RBAC role ──
-    let userRbacRole = 'viewer', userLevel = 1;
+    // ── Resolve RBAC role + platform role (v5.2.0: also reads platform_role) ──
+    let userRbacRole = 'viewer', userLevel = 1, platformRole = 'member';
     try {
-      const { data: u } = await supabase.from("fsm_users").select("rbac_role").eq("id", userId).single();
+      const { data: u } = await supabase
+        .from("fsm_users")
+        .select("rbac_role, platform_role")
+        .eq("id", userId)
+        .single();
       if (u?.rbac_role) { userRbacRole = u.rbac_role; userLevel = rbacLevel(userRbacRole); }
+      if (u?.platform_role) { platformRole = u.platform_role; }
     } catch {}
 
     // ── Instance config ──
@@ -103,7 +170,7 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // ── Chart injection ──
+    // ── Chart injection (unchanged) ──
     const msgLower = message.toLowerCase();
     const wantsChart = msgLower.includes('pie') || msgLower.includes('chart')
       || (msgLower.includes('draw') && (msgLower.includes('visual') || msgLower.includes('diagram')));
@@ -162,7 +229,7 @@ export default async function handler(req, res) {
     // BUILD RBAC-FILTERED CONTEXT
     // ═══════════════════════════════════════════════════════════════════
 
-    // Team — all see names/roles; owner/admin see emails
+    // Team
     let teamCtx = "No team members found.";
     try {
       const { data: team } = await supabase.from("fsm_users").select("id, name, role, rbac_role, email").order("name");
@@ -173,11 +240,11 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // FSM summary — all roles
+    // FSM summary
     let fsmCtx = "FSM summary not available.";
     try { const { data } = await supabase.rpc("get_fsm_summary"); if (data) fsmCtx = "FSM Summary:\n" + JSON.stringify(data, null, 2); } catch {}
 
-    // Active instances — all roles
+    // Active instances
     let instCtx = "";
     try {
       const { data: inst } = await supabase.from("fsm_instances")
@@ -192,7 +259,7 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // Recent transitions — all roles
+    // Recent transitions
     let transCtx = "";
     try {
       const { data: tr } = await supabase.from("instance_transitions")
@@ -204,7 +271,7 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // Advisories — all roles, filtered to current user
+    // Advisories
     let advCtx = "";
     if (user) {
       try {
@@ -216,7 +283,7 @@ export default async function handler(req, res) {
       } catch {}
     }
 
-    // Resources — all roles
+    // Resources
     let resCtx = "";
     try {
       const { data: sz } = await supabase.rpc("get_database_size");
@@ -284,7 +351,7 @@ export default async function handler(req, res) {
       }
     } catch {}
 
-    // ── FSM definitions (all roles) ──
+    // ── FSM definitions ──
     let fsmDefCtx = "";
     try {
       const { data: defs } = await supabase.from("fsm_definitions").select("fsm_name, description");
@@ -306,16 +373,21 @@ export default async function handler(req, res) {
       }
     } catch {}
 
+    // ── v5.2.0: Work tracking (platform owners only) ──
+    const workCtx = await loadWorkTrackingContext(supabase, platformRole);
+
     // ── System prompt ──
     const rbacNotice = userLevel < 4 ? `\n\nRBAC: User ${user} has ${userRbacRole} access. Only discuss data in your context. If asked about missing data, say "That requires authorized access." Never confirm or deny existence of restricted data.` : "";
 
+    const platformOwnerNotice = platformRole === 'owner' ? `\n\nPLATFORM ROLE: ${user} is a platform owner (AcuityFirst principal). The OPEN TODOS and RECENT WORK_LOG sections below show internal platform-development tracking visible only to platform owners. When asked "what's open?" or "what's on the todo list?" or "what did we ship?", refer to these sections directly.` : "";
+
     const systemPrompt = `You are the Chat conductor for ${instanceName}, serving ${customerName}.
-Instance: ${instanceCode} | User: ${user} (${userRbacRole})
+Instance: ${instanceCode} | User: ${user} (${userRbacRole}, platform: ${platformRole})
 
 TEAM:\n${teamCtx}
 
 OPERATIONAL STATE:
-${fsmCtx}${instCtx}${transCtx}${advCtx}${resCtx}${finCtx}${vendCtx}${apiCtx}${payCtx}${docCtx}${fsmDefCtx}${rbacNotice}
+${fsmCtx}${instCtx}${transCtx}${advCtx}${resCtx}${finCtx}${vendCtx}${apiCtx}${payCtx}${docCtx}${fsmDefCtx}${workCtx}${rbacNotice}${platformOwnerNotice}
 
 RULES:
 1. Always offer actions, never dead ends.
@@ -337,7 +409,7 @@ RULES:
     const data = await response.json();
     const reply = data.content?.filter(b => b.type === "text").map(b => b.text).join("\n") || "Connection issue. Please try again.";
 
-    // ── RC-001/003: persist assistant reply ──
+    // ── Persist assistant reply ──
     await persistMessage(supabase, activeConvId, userId, 'assistant', reply);
 
     // ── Log usage ──
