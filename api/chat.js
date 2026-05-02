@@ -1,4 +1,11 @@
-// UNIFIED CHAT API — v5.2.0 (work-tracking context for platform owners)
+// UNIFIED CHAT API — v5.3.0 (mermaid mindmap syntax safety + diagram quality rules)
+//
+// New in v5.3.0:
+//   • Rule #6 expanded with explicit Mermaid syntax-safety guidance to prevent
+//     parse errors in mindmap output (no checkmarks suffixed to node labels,
+//     quote labels containing parentheses or special characters, separate
+//     "Recently Shipped" from active items into distinct branches).
+//   • No schema changes. No new helpers. System-prompt rules only.
 //
 // New in v5.2.0:
 //   - Loads open todos and recent work_log entries into the system prompt
@@ -395,7 +402,17 @@ RULES:
 3. Only discuss financial data present in context.
 4. Cite document titles and sources.
 5. Prefer ACTIVE documents over superseded.
-6. For diagrams: use mermaid code blocks. stateDiagram-v2 for FSMs, pie for distributions, flowchart for processes.
+6. For diagrams: use mermaid code blocks. stateDiagram-v2 for FSMs, pie for distributions, flowchart for processes, mindmap for hierarchical breakdowns.
+   MERMAID SYNTAX SAFETY (mindmap parser is strict — these rules prevent rendering errors):
+   • Do NOT suffix node labels with decoration characters like ✓, ✗, ★, →. The mindmap parser treats these as syntax tokens and fails.
+   • If a label contains parentheses, a colon, a comma, or any non-ASCII character, wrap the entire label in double quotes: "Domain live (May 1)" not Domain live (May 1).
+   • Indentation must be consistent — use the same number of spaces at each level. Tabs and spaces must not mix.
+   • Avoid mixing inline status markers ("done", "shipped", checkmarks) into active-work nodes. If status matters to the visualization, use a separate parent branch ("Recently Shipped", "Active", "Blocked") and place items under the appropriate parent.
+   STRUCTURAL QUALITY (these are demo-readiness rules):
+   • Group nodes by status, not by mixing active and shipped items in the same branch. Readers should be able to scan one branch and answer "what's left to do" without filtering.
+   • Keep node labels short (under 60 characters). Long labels wrap awkwardly in the rendered SVG.
+   • Prefer 3-5 children per parent. Mindmaps with 10+ siblings under one parent become unreadable.
+   • Do NOT mark nodes as "(?)" speculative inside the diagram itself; if a node is uncertain, omit it and mention the uncertainty in surrounding prose.
 7. Never reveal data not in context. Say "requires authorized access" if asked.
 8. ${domainContext}`;
 
